@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voxelcraft</title>
+    <style>
+      :root {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #87b7e8; }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; }
+
+      /* Mira central */
+      #crosshair {
+        position: fixed; left: 50%; top: 50%;
+        width: 18px; height: 18px; transform: translate(-50%, -50%);
+        pointer-events: none; opacity: 0.85;
+      }
+      #crosshair::before, #crosshair::after {
+        content: ""; position: absolute; background: #fff;
+        box-shadow: 0 0 2px rgba(0,0,0,.6);
+      }
+      #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
+      #crosshair::after  { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
+
+      /* Overlay (tela inicial / pausa) */
+      #overlay {
+        position: fixed; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 18px;
+        background: rgba(12, 18, 28, 0.55); backdrop-filter: blur(3px);
+        color: #fff; text-align: center; cursor: pointer; z-index: 10;
+      }
+      #overlay h1 { margin: 0; font-size: clamp(40px, 9vw, 84px); letter-spacing: 2px; }
+      #overlay .sub { font-size: 18px; opacity: 0.9; }
+      #overlay .play {
+        padding: 12px 28px; border-radius: 10px; font-size: 18px; font-weight: 600;
+        background: #6c5ce7; box-shadow: 0 8px 24px rgba(108,92,231,.4);
+      }
+      #new-world {
+        margin-top: -6px; padding: 8px 18px; border-radius: 8px; cursor: pointer;
+        font-size: 14px; color: #fff; background: rgba(255,255,255,.12);
+        border: 1px solid rgba(255,255,255,.25);
+      }
+      #new-world:hover { background: rgba(255,255,255,.22); }
+      .controls {
+        display: grid; grid-template-columns: auto auto; gap: 6px 14px;
+        font-size: 15px; opacity: 0.92; margin-top: 4px;
+      }
+      .controls b { background: rgba(255,255,255,.15); padding: 1px 8px; border-radius: 6px; }
+
+      #hud {
+        position: fixed; left: 12px; bottom: 10px; color: #fff; opacity: .8;
+        font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,.6); pointer-events: none; z-index: 5;
+      }
+
+      /* Hotbar (seleção de bloco) */
+      #hotbar {
+        position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+        display: flex; gap: 8px; z-index: 5; pointer-events: none;
+      }
+      #hotbar .slot {
+        width: 46px; height: 46px; border-radius: 8px; position: relative;
+        border: 3px solid rgba(255,255,255,.35); box-shadow: 0 2px 6px rgba(0,0,0,.4);
+      }
+      #hotbar .slot.active { border-color: #fff; transform: translateY(-4px); }
+      #hotbar .slot span {
+        position: absolute; left: 4px; top: 2px; font-size: 12px; font-weight: 700;
+        color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.8);
+      }
+
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="crosshair" class="hidden"></div>
+    <div id="hud" class="hidden">Voxelcraft · <span id="fps">–</span> FPS · Esc para pausar</div>
+    <div id="hotbar" class="hidden"></div>
+
+    <div id="overlay">
+      <h1>VOXELCRAFT</h1>
+      <div class="sub">Um mundo de blocos pra explorar</div>
+      <div class="play">▶ Clique para jogar</div>
+      <button id="new-world" type="button">🗑️ Novo mundo</button>
+      <div class="controls">
+        <span>Olhar</span><span><b>Mouse</b></span>
+        <span>Mover</span><span><b>W</b> <b>A</b> <b>S</b> <b>D</b></span>
+        <span>Pular</span><span><b>Espaço</b></span>
+        <span>Voo (liga/desliga)</span><span><b>F</b></span>
+        <span>Voar (sobe/desce)</span><span><b>Espaço</b> / <b>Shift</b></span>
+        <span>Correr</span><span><b>Ctrl</b></span>
+        <span>Quebrar / Colocar</span><span><b>Botão esq.</b> / <b>dir.</b></span>
+        <span>Escolher bloco</span><span><b>1</b>–<b>8</b> / <b>roda</b></span>
+        <span>Pausar</span><span><b>Esc</b></span>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
