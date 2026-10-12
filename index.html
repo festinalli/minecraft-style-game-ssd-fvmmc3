@@ -3,17 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#87b7e8" />
     <title>Voxelcraft</title>
     <style>
+      /* ------------------------------------------------------------------
+         Voxelcraft · Parte 2 — HUD, menu e tela de morte (feature 015).
+         Estilo "blocado" sutil: bordas duras, bisel interno, sombras de texto
+         sem desfoque. Sem imagens externas: ícones são SVG inline (hud.js).
+         ------------------------------------------------------------------ */
       :root {
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        --ink: #fff;
+        --panel: rgba(14, 18, 28, 0.68);
+        --edge: rgba(0, 0, 0, 0.62);
+        --accent: #6c5ce7;
+        --grass: #4f9a35;
+        --danger: #e0262d;
+
+        /* Hotbar de 10 slots: cabe em 375 px (celular) e tem teto de 48 px. */
+        --gap: 4px;
+        --slot: min(48px, calc((100vw - 16px - var(--gap) * 9) / 10));
+        --hotbar-w: calc(var(--slot) * 10 + var(--gap) * 9);
+        --heart: min(24px, calc(var(--hotbar-w) / 20));
+        --bottom: 14px;
+
+        font-family: var(--font);
       }
       * { box-sizing: border-box; }
       html, body { margin: 0; height: 100%; overflow: hidden; background: #87b7e8; }
       #app { position: fixed; inset: 0; }
       canvas { display: block; }
+      button { font-family: inherit; }
+      .hidden { display: none !important; }
 
-      /* Mira central */
+      /* ---------- Mira central ---------- */
       #crosshair {
         position: fixed; left: 50%; top: 50%;
         width: 18px; height: 18px; transform: translate(-50%, -50%);
@@ -26,75 +49,305 @@
       #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
       #crosshair::after  { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
 
-      /* Overlay (tela inicial / pausa) */
-      #overlay {
-        position: fixed; inset: 0; display: flex; flex-direction: column;
-        align-items: center; justify-content: center; gap: 18px;
-        background: rgba(12, 18, 28, 0.55); backdrop-filter: blur(3px);
-        color: #fff; text-align: center; cursor: pointer; z-index: 10;
-      }
-      #overlay h1 { margin: 0; font-size: clamp(40px, 9vw, 84px); letter-spacing: 2px; }
-      #overlay .sub { font-size: 18px; opacity: 0.9; }
-      #overlay .play {
-        padding: 12px 28px; border-radius: 10px; font-size: 18px; font-weight: 600;
-        background: #6c5ce7; box-shadow: 0 8px 24px rgba(108,92,231,.4);
-      }
-      #new-world {
-        margin-top: -6px; padding: 8px 18px; border-radius: 8px; cursor: pointer;
-        font-size: 14px; color: #fff; background: rgba(255,255,255,.12);
-        border: 1px solid rgba(255,255,255,.25);
-      }
-      #new-world:hover { background: rgba(255,255,255,.22); }
-      .controls {
-        display: grid; grid-template-columns: auto auto; gap: 6px 14px;
-        font-size: 15px; opacity: 0.92; margin-top: 4px;
-      }
-      .controls b { background: rgba(255,255,255,.15); padding: 1px 8px; border-radius: 6px; }
-
+      /* ---------- FPS / dica (canto superior esquerdo) ---------- */
       #hud {
-        position: fixed; left: 12px; bottom: 10px; color: #fff; opacity: .8;
-        font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,.6); pointer-events: none; z-index: 5;
+        position: fixed; left: 12px; top: 10px; color: #fff; opacity: .85;
+        font-size: 13px; text-shadow: 0 1px 0 rgba(0,0,0,.7); pointer-events: none; z-index: 5;
       }
 
-      /* Hotbar (seleção de bloco) */
+      /* ---------- Flash de dano (vinheta vermelha) ---------- */
+      #damage-flash {
+        position: fixed; inset: 0; z-index: 8; pointer-events: none; opacity: 0;
+        background: radial-gradient(ellipse at center,
+          rgba(200, 0, 0, 0) 32%, rgba(200, 0, 0, .5) 72%, rgba(150, 0, 0, .9) 100%);
+      }
+      #damage-flash.flash { animation: damage-flash .5s ease-out; }
+      @keyframes damage-flash { from { opacity: 1; } to { opacity: 0; } }
+      @keyframes damage-flash-soft { from { opacity: .45; } to { opacity: 0; } }
+
+      /* ---------- Corações ---------- */
+      #hearts {
+        position: fixed; left: 50%; transform: translateX(-50%);
+        bottom: calc(var(--bottom) + var(--slot) + 12px);
+        width: var(--hotbar-w);
+        display: flex; gap: 2px; z-index: 5; pointer-events: none;
+      }
+      #hearts .heart { width: var(--heart); height: var(--heart); flex: none; }
+      #hearts .heart svg {
+        display: block; width: 100%; height: 100%;
+        filter: drop-shadow(0 1px 0 rgba(0, 0, 0, .55));
+      }
+      #hearts.low .heart { animation: heart-shake .42s steps(2, end) infinite; }
+      #hearts.low .heart:nth-child(3n + 1) { animation-delay: -.14s; }
+      #hearts.low .heart:nth-child(3n + 2) { animation-delay: -.28s; }
+      @keyframes heart-shake {
+        0%   { transform: translateY(0); }
+        50%  { transform: translateY(-2px); }
+        100% { transform: translateY(0); }
+      }
+      body[data-mode="creative"] #hearts { display: none; }
+
+      /* ---------- Hotbar (10 slots) ---------- */
       #hotbar {
-        position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
-        display: flex; gap: 8px; z-index: 5; pointer-events: none;
+        position: fixed; left: 50%; bottom: var(--bottom); transform: translateX(-50%);
+        display: flex; gap: var(--gap); z-index: 5; pointer-events: none;
       }
       #hotbar .slot {
-        width: 46px; height: 46px; border-radius: 8px; position: relative;
-        border: 3px solid rgba(255,255,255,.35); box-shadow: 0 2px 6px rgba(0,0,0,.4);
+        position: relative; flex: none; width: var(--slot); height: var(--slot);
+        background: rgba(18, 22, 32, .66);
+        border: 3px solid #12151d; border-radius: 2px;
+        box-shadow:
+          inset 2px 2px 0 rgba(255, 255, 255, .17),
+          inset -2px -2px 0 rgba(0, 0, 0, .38),
+          0 2px 6px rgba(0, 0, 0, .35);
+        transition: transform .08s ease-out;
       }
-      #hotbar .slot.active { border-color: #fff; transform: translateY(-4px); }
-      #hotbar .slot span {
-        position: absolute; left: 4px; top: 2px; font-size: 12px; font-weight: 700;
-        color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.8);
+      #hotbar .slot.active {
+        border-color: #fff; transform: translateY(-4px);
+        box-shadow:
+          0 0 0 2px #000,
+          inset 2px 2px 0 rgba(255, 255, 255, .28),
+          inset -2px -2px 0 rgba(0, 0, 0, .3),
+          0 6px 10px rgba(0, 0, 0, .45);
+      }
+      #hotbar .slot > span {
+        position: absolute; left: 2px; top: 0; z-index: 2;
+        font-size: max(9px, calc(var(--slot) * .25)); font-weight: 800; line-height: 1.25;
+        color: #fff; text-shadow: 1px 1px 0 #000;
+      }
+      #hotbar .slot .icon { position: absolute; inset: 3px; }
+      #hotbar .slot .icon svg { display: block; width: 100%; height: 100%; }
+      #hotbar .slot .count {
+        position: absolute; right: 2px; bottom: 0; z-index: 2;
+        font-size: max(10px, calc(var(--slot) * .3)); font-weight: 800; line-height: 1.2;
+        color: #fff;
+        text-shadow: 1px 0 #000, -1px 0 #000, 0 1px #000, 0 -1px #000, 1px 1px #000;
+      }
+      #hotbar .slot.empty .icon { opacity: .3; filter: grayscale(.85); }
+      #hotbar .slot.empty .count { color: #ff8a8a; }
+
+      /* ---------- Relógio (canto superior direito) ---------- */
+      #clock {
+        position: fixed; top: 10px; right: 12px; z-index: 5; pointer-events: none;
+        display: flex; align-items: center; gap: 8px; padding: 5px 11px 5px 8px;
+        background: var(--panel); border: 2px solid var(--edge); border-radius: 2px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+        color: #fff; font-size: 14px; font-weight: 700; white-space: nowrap;
+        text-shadow: 0 1px 0 rgba(0, 0, 0, .65);
+      }
+      #clock .clock-icon { width: 18px; height: 18px; flex: none; }
+      #clock .clock-icon svg { display: block; width: 100%; height: 100%; }
+      #clock.night { color: #d5dcff; }
+
+      /* ---------- Toasts (avisos curtos, empilhados no topo) ---------- */
+      #toasts {
+        position: fixed; top: 52px; left: 50%; transform: translateX(-50%);
+        width: min(92vw, 380px); z-index: 6; pointer-events: none;
+        display: flex; flex-direction: column; align-items: center; gap: 6px;
+      }
+      .toast {
+        max-width: 100%; padding: 6px 14px; overflow-wrap: anywhere; text-align: center;
+        background: rgba(14, 18, 28, .8); border: 2px solid var(--edge); border-radius: 2px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+        color: #fff; font-size: 15px; font-weight: 700; text-shadow: 0 1px 0 #000;
+        animation: toast-in .18s ease-out both;
+      }
+      .toast.out { animation: toast-out .25s ease-in both; }
+      @keyframes toast-in  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+      @keyframes toast-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-6px); } }
+
+      /* ---------- Menu inicial / pausa ---------- */
+      #overlay {
+        position: fixed; inset: 0; z-index: 10; display: flex; overflow-y: auto;
+        background: rgba(12, 18, 28, .62);
+        -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+        color: #fff; text-align: center; cursor: pointer;
+        /* O atraso evita um "piscar" do menu entre hideDeath() e o lock do mouse. */
+        animation: menu-in .2s ease-out .1s both;
+      }
+      @keyframes menu-in { from { opacity: 0; } to { opacity: 1; } }
+      body.dead #overlay { display: none !important; }
+
+      .menu-panel {
+        margin: auto; padding: 24px 16px; width: min(100%, 580px);
+        display: flex; flex-direction: column; align-items: center; gap: 14px;
+      }
+      #overlay h1 {
+        margin: 0; font-size: clamp(38px, 11vw, 84px); line-height: 1; font-weight: 900;
+        letter-spacing: 3px; color: #fff;
+        text-shadow: 0 4px 0 #3a2f99, 0 8px 0 rgba(0, 0, 0, .45);
+      }
+      #overlay .sub {
+        margin: 0; padding: 3px 12px; font-size: 15px; font-weight: 700; letter-spacing: 1.5px;
+        text-transform: uppercase; background: rgba(0, 0, 0, .32);
+        border: 2px solid rgba(255, 255, 255, .18); border-radius: 2px;
       }
 
-      .hidden { display: none !important; }
+      .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; margin-top: 4px; }
+      .mode-btn {
+        position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px;
+        min-height: 86px; padding: 14px 12px 18px; cursor: pointer; color: #fff;
+        border: 3px solid #0c0e15; border-radius: 3px;
+        box-shadow:
+          inset 0 3px 0 rgba(255, 255, 255, .3),
+          inset 0 -5px 0 rgba(0, 0, 0, .32),
+          0 6px 0 rgba(0, 0, 0, .42);
+        transition: transform .06s, filter .12s, box-shadow .06s;
+      }
+      /* verde mais escuro que --grass: texto branco de 13 px precisa de contraste AA (>= 4.5:1) */
+      .mode-btn.survival { background: #3b7d28; }
+      .mode-btn.creative { background: #5b4bd6; }
+      .mode-btn:hover { filter: brightness(1.06); }
+      .mode-btn:active {
+        transform: translateY(4px);
+        box-shadow: inset 0 3px 0 rgba(255, 255, 255, .3), inset 0 -3px 0 rgba(0, 0, 0, .32), 0 2px 0 rgba(0, 0, 0, .42);
+      }
+      .mode-name { font-size: 22px; font-weight: 900; letter-spacing: .5px; text-shadow: 0 2px 0 rgba(0, 0, 0, .45); }
+      .mode-desc { font-size: 13px; line-height: 1.3; text-shadow: 0 1px 0 rgba(0, 0, 0, .4); }
+      .mode-tag {
+        display: none; position: absolute; top: -10px; right: 8px; padding: 1px 8px;
+        font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase;
+        color: #111; background: #ffd84a; border: 2px solid #0c0e15; border-radius: 2px;
+      }
+      .mode-btn.current .mode-tag { display: block; }
+
+      #new-world { display: contents; }
+      #btn-new-world {
+        padding: 8px 18px; cursor: pointer; font-size: 14px; font-weight: 600; color: #fff;
+        background: rgba(255, 255, 255, .12); border: 2px solid rgba(255, 255, 255, .28); border-radius: 3px;
+      }
+      #btn-new-world:hover { background: rgba(255, 255, 255, .22); }
+
+      .controls {
+        display: grid; grid-template-columns: max-content max-content; justify-content: center;
+        align-items: center; gap: 7px 16px; margin: 4px 0 0; padding: 12px 18px;
+        font-size: 14px; text-align: left; cursor: default;
+        background: rgba(0, 0, 0, .3); border: 2px solid rgba(255, 255, 255, .13); border-radius: 3px;
+      }
+      .controls dt { margin: 0; text-align: right; opacity: .88; }
+      .controls dd { margin: 0; }
+      .controls kbd {
+        display: inline-block; min-width: 24px; padding: 0 7px; text-align: center;
+        font: 700 13px/1.5 var(--font); color: #fff;
+        background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .28);
+        border-bottom-width: 3px; border-radius: 3px;
+      }
+
+      button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+
+      /* ---------- Tela de morte ---------- */
+      #death {
+        position: fixed; inset: 0; z-index: 12; display: flex; overflow-y: auto;
+        background: radial-gradient(ellipse at center, rgba(90, 0, 0, .74), rgba(24, 0, 0, .94));
+        color: #fff; text-align: center; animation: death-in .5s ease-out both;
+      }
+      @keyframes death-in { from { opacity: 0; } to { opacity: 1; } }
+      .death-panel {
+        margin: auto; padding: 24px 16px; display: flex; flex-direction: column; align-items: center; gap: 20px;
+      }
+      #death h2 {
+        margin: 0; font-size: clamp(40px, 12vw, 88px); line-height: 1; font-weight: 900; letter-spacing: 2px;
+        color: #ff4a4a; text-shadow: 0 4px 0 #5a0000, 0 8px 0 rgba(0, 0, 0, .5);
+      }
+      .death-stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; }
+      .death-stats .stat {
+        min-width: 132px; padding: 10px 18px 12px;
+        background: rgba(0, 0, 0, .42); border: 2px solid rgba(255, 255, 255, .16); border-radius: 3px;
+      }
+      .death-stats b { display: block; font-size: 40px; line-height: 1.1; text-shadow: 0 3px 0 rgba(0, 0, 0, .5); }
+      .death-stats span { font-size: 12px; letter-spacing: .09em; text-transform: uppercase; opacity: .85; }
+      #btn-respawn {
+        min-width: 220px; padding: 14px 28px 18px; cursor: pointer;
+        font-size: 24px; font-weight: 900; letter-spacing: .5px; color: #fff;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, .45); background: var(--grass);
+        border: 3px solid #0c0e15; border-radius: 3px;
+        box-shadow:
+          inset 0 3px 0 rgba(255, 255, 255, .3),
+          inset 0 -5px 0 rgba(0, 0, 0, .32),
+          0 6px 0 rgba(0, 0, 0, .42);
+      }
+      #btn-respawn:hover { filter: brightness(1.14); }
+      #btn-respawn:active { transform: translateY(4px); box-shadow: inset 0 3px 0 rgba(255,255,255,.3), 0 2px 0 rgba(0,0,0,.42); }
+
+      /* ---------- Telas estreitas (celular) ---------- */
+      @media (max-width: 520px) {
+        #hud .brand, #hud .hint { display: none; }
+        .modes { grid-template-columns: 1fr; }
+        .mode-btn { min-height: 74px; padding: 10px 12px 16px; }
+        .controls { font-size: 13px; padding: 10px 12px; gap: 6px 12px; }
+        #clock { font-size: 13px; padding: 4px 9px 4px 6px; }
+      }
+      @media (max-height: 560px) {
+        .menu-panel { gap: 10px; padding-top: 12px; padding-bottom: 12px; }
+        #overlay h1 { font-size: clamp(30px, 11vh, 56px); }
+        #death h2 { font-size: clamp(30px, 11vh, 56px); }
+      }
+
+      /* ---------- Menos movimento ---------- */
+      @media (prefers-reduced-motion: reduce) {
+        #hearts.low .heart { animation: none; }
+        #damage-flash.flash { animation: damage-flash-soft .4s linear; }
+        .toast, .toast.out { animation-duration: .01s; }
+        #overlay { animation-duration: .01s; }
+        #death { animation: none; }
+        #hotbar .slot, .mode-btn { transition: none; }
+      }
     </style>
   </head>
   <body>
     <div id="app"></div>
+    <div id="damage-flash" aria-hidden="true"></div>
     <div id="crosshair" class="hidden"></div>
-    <div id="hud" class="hidden">Voxelcraft · <span id="fps">–</span> FPS · Esc para pausar</div>
+    <div id="hud" class="hidden"><span class="brand">Voxelcraft · </span><span id="fps">–</span> FPS<span class="hint"> · Esc para pausar</span></div>
+    <div id="clock" class="hidden"></div>
+    <div id="toasts" role="status" aria-live="polite"></div>
+    <div id="hearts" class="hidden" role="img" aria-label="Vida"></div>
     <div id="hotbar" class="hidden"></div>
 
-    <div id="overlay">
-      <h1>VOXELCRAFT</h1>
-      <div class="sub">Um mundo de blocos pra explorar</div>
-      <div class="play">▶ Clique para jogar</div>
-      <button id="new-world" type="button">🗑️ Novo mundo</button>
-      <div class="controls">
-        <span>Olhar</span><span><b>Mouse</b></span>
-        <span>Mover</span><span><b>W</b> <b>A</b> <b>S</b> <b>D</b></span>
-        <span>Pular</span><span><b>Espaço</b></span>
-        <span>Voo (liga/desliga)</span><span><b>F</b></span>
-        <span>Voar (sobe/desce)</span><span><b>Espaço</b> / <b>Shift</b></span>
-        <span>Correr</span><span><b>Ctrl</b></span>
-        <span>Quebrar / Colocar</span><span><b>Botão esq.</b> / <b>dir.</b></span>
-        <span>Escolher bloco</span><span><b>1</b>–<b>8</b> / <b>roda</b></span>
-        <span>Pausar</span><span><b>Esc</b></span>
+    <div id="overlay" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+      <div class="menu-panel">
+        <h1 id="menu-title">VOXELCRAFT</h1>
+        <p class="sub" id="menu-sub">Parte 2 · Criaturas</p>
+
+        <div class="modes">
+          <button id="btn-survival" class="mode-btn survival" type="button">
+            <span class="mode-tag">Continuar</span>
+            <span class="mode-name">Sobrevivência</span>
+            <span class="mode-desc">Vida, monstros à noite e carne para se curar</span>
+          </button>
+          <button id="btn-creative" class="mode-btn creative" type="button">
+            <span class="mode-tag">Continuar</span>
+            <span class="mode-name">Criativo</span>
+            <span class="mode-desc">Blocos infinitos, voo e sem dano</span>
+          </button>
+        </div>
+
+        <div id="new-world"><button id="btn-new-world" type="button">Novo mundo</button></div>
+
+        <dl class="controls">
+          <dt>Olhar</dt><dd><kbd>Mouse</kbd></dd>
+          <dt>Mover</dt><dd><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></dd>
+          <dt>Pular</dt><dd><kbd>Espaço</kbd></dd>
+          <dt>Correr</dt><dd><kbd>Ctrl</kbd> ou <kbd>Shift</kbd></dd>
+          <dt>Golpear / Quebrar</dt><dd><kbd>Botão esq.</kbd></dd>
+          <dt>Colocar / Comer</dt><dd><kbd>Botão dir.</kbd></dd>
+          <dt>Escolher item</dt><dd><kbd>1</kbd>–<kbd>9</kbd> e <kbd>0</kbd> ou <kbd>roda</kbd></dd>
+          <dt>Câmera 1ª / 3ª pessoa</dt><dd><kbd>V</kbd></dd>
+          <dt>Voar (só Criativo)</dt><dd><kbd>F</kbd> · <kbd>Espaço</kbd> / <kbd>Shift</kbd></dd>
+          <dt>Som ligado / desligado</dt><dd><kbd>M</kbd></dd>
+          <dt>Pausar</dt><dd><kbd>Esc</kbd></dd>
+        </dl>
+      </div>
+    </div>
+
+    <div id="death" class="hidden" role="alertdialog" aria-modal="true" aria-labelledby="death-title">
+      <div class="death-panel">
+        <h2 id="death-title">Você morreu</h2>
+        <div class="death-stats">
+          <div class="stat"><b id="death-days">1</b><span>Dias sobrevividos</span></div>
+          <div class="stat"><b id="death-kills">0</b><span>Abates</span></div>
+        </div>
+        <button id="btn-respawn" type="button">Renascer</button>
       </div>
     </div>
 

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voxelcraft · Galeria de HUD</title>
+    <style>
+      /* Só o palco e o painel de controle da galeria. O visual do HUD vem do
+         index.html real (dev/hud.js busca o <style> e o markup de lá). */
+      #stage { position: fixed; inset: 0; z-index: 0; background: linear-gradient(#87b7e8 0 58%, #6ab04c 58% 70%, #8b5a2b 70%); }
+      #stage.night { background: linear-gradient(#0b1030 0 58%, #1f3a22 58% 70%, #3a2713 70%); }
+      #stage.snow { background: linear-gradient(#e9f3ff 0 58%, #ffffff 58% 70%, #dfe9f5 70%); }
+      #stage.cave { background: linear-gradient(#3a3a40 0 58%, #55555c 58% 70%, #2a2a30 70%); }
+
+      #dev-toggle, #dev-panel {
+        position: fixed; z-index: 50; font: 12px/1.35 system-ui, sans-serif; color: #fff;
+        background: rgba(10, 12, 20, .88); border: 1px solid rgba(255,255,255,.25); border-radius: 6px;
+      }
+      #dev-toggle { left: 8px; top: 38px; padding: 4px 10px; cursor: pointer; }
+      #dev-panel {
+        left: 8px; top: 68px; width: 236px; max-height: calc(100vh - 160px); overflow-y: auto; padding: 8px 10px 10px;
+      }
+      #dev-panel.collapsed { display: none; }
+      #dev-panel h4 { margin: 10px 0 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; opacity: .65; }
+      #dev-panel h4:first-child { margin-top: 0; }
+      #dev-panel .row { display: flex; flex-wrap: wrap; gap: 4px; }
+      #dev-panel button {
+        font: inherit; color: #fff; cursor: pointer; padding: 3px 8px;
+        background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.28); border-radius: 4px;
+      }
+      #dev-panel button:hover { background: rgba(255,255,255,.24); }
+      #dev-panel input[type="range"] { width: 100%; }
+      #dev-log { margin-top: 8px; padding: 4px 6px; min-height: 2.8em; font-family: ui-monospace, monospace; font-size: 11px; background: rgba(0,0,0,.4); border-radius: 4px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <button id="dev-toggle" type="button">Painel</button>
+    <div id="dev-panel"></div>
+    <script type="module" src="./hud.js"></script>
+  </body>
+</html>

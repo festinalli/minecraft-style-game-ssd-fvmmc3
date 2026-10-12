@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Galeria de criaturas — Voxelcraft (dev)</title>
+    <!-- Página de desenvolvimento: NÃO entra no build (o Vite só builda index.html). -->
+    <style>
+      :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0f1520; color: #e9eef7; }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; }
+
+      #panel {
+        position: fixed; left: 10px; top: 10px; width: 262px; z-index: 5;
+        background: rgba(12, 18, 28, 0.82); border: 1px solid rgba(255,255,255,.14);
+        border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(4px);
+        max-height: calc(100% - 20px); overflow: auto; font-size: 13px;
+      }
+      #panel h1 { margin: 0 0 2px; font-size: 15px; }
+      #panel .sub { opacity: .65; font-size: 12px; margin-bottom: 8px; }
+      #panel h2 { margin: 10px 0 5px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; opacity: .6; }
+      .btns { display: flex; flex-wrap: wrap; gap: 5px; }
+      button {
+        font: inherit; font-size: 12.5px; color: #e9eef7; cursor: pointer;
+        background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2);
+        border-radius: 7px; padding: 5px 9px;
+      }
+      button:hover { background: rgba(255,255,255,.16); }
+      button[aria-pressed="true"] { background: #6c5ce7; border-color: #9a8cff; }
+      label.row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+      label.row input { flex: 1; }
+      #speedv { width: 34px; text-align: right; opacity: .8; }
+
+      .tag {
+        position: fixed; transform: translate(-50%, -100%); pointer-events: none; z-index: 4;
+        font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 6px;
+        background: rgba(12,18,28,.7); text-shadow: 0 1px 2px #000; white-space: nowrap;
+      }
+      #skins {
+        position: fixed; right: 10px; top: 10px; z-index: 5; display: none; gap: 8px;
+        flex-wrap: wrap; max-width: 46vw; justify-content: flex-end;
+        background: rgba(12, 18, 28, 0.82); border: 1px solid rgba(255,255,255,.14);
+        border-radius: 10px; padding: 8px; max-height: calc(100% - 20px); overflow: auto;
+      }
+      #skins figure { margin: 0; text-align: center; font-size: 11px; }
+      #skins canvas { image-rendering: pixelated; border: 1px solid rgba(255,255,255,.2); background: #20283a; }
+      #status { position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 5; font-size: 12px; opacity: .6; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="panel">
+      <h1>Galeria de criaturas</h1>
+      <div class="sub">Dev · arraste gira · roda dá zoom · H oculta o painel</div>
+
+      <h2>Estados</h2>
+      <div class="btns" id="states">
+        <button data-k="walk">Andar</button>
+        <button data-k="sprint">Correr</button>
+        <button data-k="hurt">Ferido</button>
+        <button data-k="fuse">Inchar</button>
+        <button data-k="burning">Queimando</button>
+        <button data-k="attack">Atacar</button>
+        <button data-k="dying">Morrer</button>
+      </div>
+      <label class="row">Velocidade <input id="speed" type="range" min="0" max="11" step="0.1" value="3" /><span id="speedv">3</span></label>
+
+      <h2>Personagens</h2>
+      <div class="btns">
+        <button id="sheep-next">Ovelha: cor <b id="sheep-v">1</b></button>
+        <button data-k="row2">4 ovelhas</button>
+      </div>
+      <h2>Mão do jogador</h2>
+      <div class="btns" id="hold">
+        <button data-hold="none">Nada</button>
+        <button data-hold="sword">Espada</button>
+        <button data-hold="pork">Carne</button>
+        <button data-hold="block">Bloco</button>
+      </div>
+
+      <h2>Câmera e cena</h2>
+      <div class="btns" id="cams">
+        <button data-cam="front">Frente</button>
+        <button data-cam="side">Lado</button>
+        <button data-cam="back">Trás</button>
+        <button data-cam="top">Cima</button>
+        <button data-k="orbit">Orbitar</button>
+        <button data-k="night">Noite</button>
+        <button data-k="hitbox">Hitbox</button>
+        <button data-k="skins">Skins</button>
+      </div>
+    </div>
+    <div id="skins"></div>
+    <div id="status">carregando…</div>
+
+    <script type="module" src="./mobs.js"></script>
+  </body>
+</html>
