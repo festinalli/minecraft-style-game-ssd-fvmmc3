@@ -2,14 +2,21 @@ import * as THREE from 'three';
 import { BLOCK, isSolid } from '../blocks.js';
 import { makeNoise2D } from './noise.js';
 import { tileFor, uvForTile } from './atlas.js';
+import {
+  CHUNK_SIZE,
+  WORLD_HEIGHT,
+  BASE_HEIGHT,
+  CHUNK_VOLUME,
+  chunkIndex,
+  terrainHeight,
+  surfaceBlockFor,
+  decorateTrees,
+} from './terrain.js';
 
-// --- Constantes canônicas (fonte única) ---
-export const CHUNK_SIZE = 16; // blocos por lado (X e Z) de um chunk
-export const WORLD_HEIGHT = 48; // altura finita do mundo (Y)
-
-const BASE_HEIGHT = 8; // piso mínimo do terreno
-const WATER_LEVEL = 10; // colunas baixas ganham areia no topo
-const CHUNK_VOLUME = CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT;
+// --- Constantes canônicas (fonte única: terrain.js) ---
+// Re-exportadas aqui porque o resto do jogo (main, streamer, testes) as importa
+// de world.js desde a Parte 1.
+export { CHUNK_SIZE, WORLD_HEIGHT };
 
 // --- Conversão de coordenadas (PURAS) ---
 export const chunkCoord = (b) => Math.floor(b / CHUNK_SIZE);
@@ -17,11 +24,9 @@ export const localCoord = (b) => ((b % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 export const chunkKey = (cx, cz) => cx + ',' + cz;
 export const parseKey = (key) => key.split(',').map(Number);
 
-// índice de (lx, y, lz) dentro do array de um chunk
-const idx = (lx, y, lz) => lx + lz * CHUNK_SIZE + y * CHUNK_SIZE * CHUNK_SIZE;
-
 /**
- * Gera os blocos de um chunk de forma determinística (PURO).
+ * Gera os blocos de um chunk de forma determinística (PURO): terreno por
+ * altura de coluna + árvores por grade de células (ver terrain.js).
  * @param {number} seed
  * @param {number} cx @param {number} cz coordenadas do chunk
  * @returns {Uint8Array}
@@ -34,23 +39,34 @@ export function generateChunk(seed, cx, cz) {
 
   for (let lx = 0; lx < CHUNK_SIZE; lx++) {
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-      const wx = baseX + lx;
-      const wz = baseZ + lz;
-      const n01 = (noise(wx, wz) + 1) / 2; // [0,1]
-      const height = Math.max(
-        1,
-        Math.min(WORLD_HEIGHT - 1, Math.floor(BASE_HEIGHT + n01 * (WORLD_HEIGHT - BASE_HEIGHT - 8)))
-      );
+      const height = terrainHeight(noise, baseX + lx, baseZ + lz);
       for (let y = 0; y <= height; y++) {
         let block;
-        if (y === height) block = height <= WATER_LEVEL ? BLOCK.SAND : BLOCK.GRASS;
+        if (y === height) block = surfaceBlockFor(height);
         else if (y >= height - 3) block = BLOCK.DIRT;
         else block = BLOCK.STONE;
-        data[idx(lx, y, lz)] = block;
+        data[chunkIndex(lx, y, lz)] = block;
       }
     }
   }
+  decorateTrees(data, seed, cx, cz, noise); // troncos e copas (inclusive das árvores vizinhas)
   return data;
+}
+
+/**
+ * O fundo do mundo (y = 0) é indestrutível desde a Parte 2. Saves da Parte 1 podem ter
+ * buracos nessa camada (dava para quebrá-la): sela com pedra ao carregar, senão o
+ * jogador cairia para sempre. Só mexe em AIR; dados de tamanho errado são ignorados.
+ * @param {Uint8Array} data
+ */
+export function sealBottom(data) {
+  if (!data || data.length !== CHUNK_VOLUME) return;
+  for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      const i = chunkIndex(lx, 0, lz);
+      if (data[i] === BLOCK.AIR) data[i] = BLOCK.STONE;
+    }
+  }
 }
 
 /**
@@ -77,7 +93,7 @@ export class World {
   getBlock(bx, by, bz) {
     if (by < 0 || by >= WORLD_HEIGHT) return BLOCK.AIR;
     const data = this.getChunkData(chunkCoord(bx), chunkCoord(bz));
-    return data[idx(localCoord(bx), by, localCoord(bz))];
+    return data[chunkIndex(localCoord(bx), by, localCoord(bz))];
   }
 
   setBlock(bx, by, bz, block) {
@@ -85,7 +101,7 @@ export class World {
     const cx = chunkCoord(bx);
     const cz = chunkCoord(bz);
     const data = this.getChunkData(cx, cz);
-    data[idx(localCoord(bx), by, localCoord(bz))] = block;
+    data[chunkIndex(localCoord(bx), by, localCoord(bz))] = block;
     this.modified.add(chunkKey(cx, cz));
   }
 
@@ -96,6 +112,7 @@ export class World {
   /** Aplica dados vindos do save (marca como modificado). */
   applyChunk(cx, cz, data) {
     const key = chunkKey(cx, cz);
+    sealBottom(data);
     this.chunks.set(key, data);
     this.modified.add(key);
   }
@@ -112,7 +129,7 @@ export class World {
     const lx = localCoord(bx);
     const lz = localCoord(bz);
     for (let y = WORLD_HEIGHT - 1; y >= 0; y--) {
-      if (isSolid(data[idx(lx, y, lz)])) return y + 1;
+      if (isSolid(data[chunkIndex(lx, y, lz)])) return y + 1;
     }
     return BASE_HEIGHT;
   }
@@ -137,9 +154,28 @@ const FACES = [
     corners: [[0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]], uv: [[0, 1], [1, 1], [0, 0], [1, 0]] }, // +z
 ];
 
+// Tile (UVs) por (bloco, face): tileFor/uvForTile são puras, então calculamos uma vez.
+const FACE_NAMES = ['side', 'bottom', 'top'];
+const uvCache = new Map();
+function faceRect(block, face) {
+  const key = block * 3 + FACE_NAMES.indexOf(face.name);
+  let r = uvCache.get(key);
+  if (!r) {
+    r = uvForTile(tileFor(block, face.name));
+    uvCache.set(key, r);
+  }
+  return r;
+}
+
 /**
  * Constrói a malha de UM chunk (face culling), em coordenadas de mundo.
- * Faces de borda consultam o vizinho via world.getBlock (gera sob demanda).
+ *
+ * Caminho QUENTE (~40 mil consultas de vizinho por chunk): lê direto os arrays do
+ * chunk e dos 4 vizinhos laterais, em vez de world.getBlock (que monta uma chave de
+ * string por consulta e custava ~60% do tempo). O resultado é idêntico — o teste de
+ * paridade em tests/mesh.test.js compara com a implementação por getBlock.
+ * Os vizinhos são gerados sob demanda, como antes (faces de borda corretas).
+ *
  * @param {World} world
  * @param {number} cx @param {number} cz
  * @param {THREE.Material} [material]
@@ -154,29 +190,60 @@ export function buildChunkMesh(world, cx, cz, material) {
   const baseX = cx * CHUNK_SIZE;
   const baseZ = cz * CHUNK_SIZE;
 
+  const self = world.getChunkData(cx, cz);
+  const west = world.getChunkData(cx - 1, cz);
+  const east = world.getChunkData(cx + 1, cz);
+  const north = world.getChunkData(cx, cz - 1);
+  const south = world.getChunkData(cx, cz + 1);
+
+  /** Sólido em (lx, y, lz) locais; lx/lz podem valer -1 ou CHUNK_SIZE (vizinho). */
+  function solidAt(lx, y, lz) {
+    if (y < 0 || y >= WORLD_HEIGHT) return false;
+    let data = self;
+    if (lx < 0) {
+      data = west;
+      lx += CHUNK_SIZE;
+    } else if (lx >= CHUNK_SIZE) {
+      data = east;
+      lx -= CHUNK_SIZE;
+    } else if (lz < 0) {
+      data = north;
+      lz += CHUNK_SIZE;
+    } else if (lz >= CHUNK_SIZE) {
+      data = south;
+      lz -= CHUNK_SIZE;
+    }
+    return isSolid(data[chunkIndex(lx, y, lz)]);
+  }
+
   for (let y = 0; y < WORLD_HEIGHT; y++) {
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const block = self[chunkIndex(lx, y, lz)];
+        if (!isSolid(block)) continue;
         const bx = baseX + lx;
         const bz = baseZ + lz;
-        const block = world.getBlock(bx, y, bz);
-        if (!isSolid(block)) continue;
 
-        for (const face of FACES) {
-          const [dx, dy, dz] = face.dir;
-          if (isSolid(world.getBlock(bx + dx, y + dy, bz + dz))) continue;
+        for (let f = 0; f < FACES.length; f++) {
+          const face = FACES[f];
+          const dx = face.dir[0];
+          const dy = face.dir[1];
+          const dz = face.dir[2];
+          if (solidAt(lx + dx, y + dy, lz + dz)) continue;
 
           const ndx = positions.length / 3;
           const s = face.shade;
-          const rect = uvForTile(tileFor(block, face.name));
+          const rect = faceRect(block, face);
+          const du = rect.u1 - rect.u0;
+          const dv = rect.v1 - rect.v0;
 
           for (let k = 0; k < 4; k++) {
-            const [ox, oy, oz] = face.corners[k];
-            positions.push(bx + ox, y + oy, bz + oz);
+            const corner = face.corners[k];
+            positions.push(bx + corner[0], y + corner[1], bz + corner[2]);
             normals.push(dx, dy, dz);
             colors.push(s, s, s);
-            const [lu, lv] = face.uv[k];
-            uvs.push(rect.u0 + lu * (rect.u1 - rect.u0), rect.v0 + lv * (rect.v1 - rect.v0));
+            const uv = face.uv[k];
+            uvs.push(rect.u0 + uv[0] * du, rect.v0 + uv[1] * dv);
           }
           indices.push(ndx, ndx + 1, ndx + 2, ndx + 2, ndx + 1, ndx + 3);
         }

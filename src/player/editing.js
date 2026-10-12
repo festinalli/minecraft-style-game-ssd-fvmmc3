@@ -1,13 +1,8 @@
 import * as THREE from 'three';
 import { BLOCK, isSolid } from '../blocks.js';
+import { WORLD_HEIGHT } from '../world/terrain.js';
 
 export const REACH = 8; // alcance (em blocos) para mirar/editar
-
-// Teclas 1–8 (e roda do mouse) -> tipo de bloco a colocar.
-export const HOTBAR = [
-  BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND,
-  BLOCK.WOOD, BLOCK.LEAVES, BLOCK.PLANKS, BLOCK.COBBLE,
-];
 
 /**
  * Função PURA: do ponto de impacto + normal da face para coordenadas GLOBAIS
@@ -32,8 +27,22 @@ export function resolveTarget(point, normal) {
 }
 
 /**
+ * PURA: a célula inteira de bloco `cell` intersecta a caixa de uma entidade
+ * (centro dos pés em x,z; `feetY` na base; `halfW` e `height`)? Usada para
+ * não prender o jogador (ou uma criatura) dentro de um bloco recém-colocado.
+ */
+export function cellOverlapsBox(cell, x, feetY, z, halfW, height) {
+  return (
+    cell.x + 1 > x - halfW && cell.x < x + halfW &&
+    cell.y + 1 > feetY && cell.y < feetY + height &&
+    cell.z + 1 > z - halfW && cell.z < z + halfW
+  );
+}
+
+/**
  * Mira por raycast, realce do bloco alvo e edição (remover/colocar) num mundo
- * de chunks.
+ * de chunks. As REGRAS (o que colocar, o que acontece ao quebrar, golpear
+ * criaturas, comer) ficam no host via callbacks — aqui só há geometria.
  *
  * @param {object} opts
  * @param {THREE.Camera} opts.camera
@@ -42,22 +51,27 @@ export function resolveTarget(point, normal) {
  * @param {() => THREE.Mesh[]} opts.getMeshes  malhas de chunk ativas
  * @param {(bx:number, bz:number) => void} opts.rebuildAround  rebuilda chunk(s)
  * @param {() => boolean} opts.isLocked
- * @param {(out:THREE.Vector3) => void} opts.getPlayerPos
- * @param {(blockType:number) => void} [opts.onSelect]
+ * @param {() => number|null} opts.getHeldBlock  bloco que seria colocado (ou null)
+ * @param {(cell:{x,y,z}) => boolean} [opts.isCellBlocked]  jogador/criatura ocupa a célula?
+ * @param {(ray:{origin,dir,blockDistance:number}) => boolean} [opts.onAttack]
+ *        true = acertou uma criatura (o clique não quebra bloco)
+ * @param {(block:number, cell:{x,y,z}) => void} [opts.onBreak]
+ * @param {(block:number, cell:{x,y,z}) => void} [opts.onPlace]
+ * @param {() => void} [opts.onUse]   botão direito sem bloco na mão (ex.: comer)
+ * @param {() => void} [opts.onSwing] qualquer golpe/colocação (animação da mão)
  * @param {() => void} [opts.onEdit]  notifica edição (ex.: autosave)
  */
 export function createEditing(opts) {
   const {
-    camera, scene, world, getMeshes, rebuildAround,
-    isLocked, getPlayerPos, onSelect, onEdit,
+    camera, scene, world, getMeshes, rebuildAround, isLocked, getHeldBlock,
+    isCellBlocked, onAttack, onBreak, onPlace, onUse, onSwing, onEdit,
   } = opts;
 
   const raycaster = new THREE.Raycaster();
   raycaster.far = REACH;
   const center = new THREE.Vector2(0, 0);
 
-  let selectedIndex = 0;
-  let current = null;
+  let current = null; // { hit, place, distance } do quadro atual
 
   const highlight = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(1.002, 1.002, 1.002)),
@@ -66,23 +80,26 @@ export function createEditing(opts) {
   highlight.visible = false;
   scene.add(highlight);
 
-  const playerPos = new THREE.Vector3();
-
-  function playerCell() {
-    getPlayerPos(playerPos);
-    return {
-      x: Math.floor(playerPos.x),
-      y: Math.floor(playerPos.y),
-      z: Math.floor(playerPos.z),
-    };
-  }
+  const rayOrigin = new THREE.Vector3();
+  const rayDir = new THREE.Vector3();
 
   function pick() {
     const hits = raycaster.intersectObjects(getMeshes(), false);
     if (hits.length === 0) return null;
     const h = hits[0];
     if (!h.face) return null;
-    return resolveTarget(h.point, h.face.normal);
+    const t = resolveTarget(h.point, h.face.normal);
+    t.distance = h.distance;
+    return t;
+  }
+
+  // Recalcula o raio a partir da câmera NESTE instante. O clique usa isto em vez
+  // do raio do último quadro: a mira nunca fica um quadro atrasada em relação
+  // ao mouse (e o golpe acerta o que está sob a mira de verdade).
+  function refreshTarget() {
+    camera.updateMatrixWorld(true);
+    raycaster.setFromCamera(center, camera);
+    current = pick();
   }
 
   function updateHighlight() {
@@ -91,8 +108,7 @@ export function createEditing(opts) {
       current = null;
       return;
     }
-    raycaster.setFromCamera(center, camera);
-    current = pick();
+    refreshTarget();
     if (!current) {
       highlight.visible = false;
       return;
@@ -101,43 +117,46 @@ export function createEditing(opts) {
     highlight.position.set(current.hit.x + 0.5, current.hit.y + 0.5, current.hit.z + 0.5);
   }
 
-  function sameCell(a, b) {
-    return a.x === b.x && a.y === b.y && a.z === b.z;
-  }
-
   function onMouseDown(e) {
-    if (!isLocked() || !current) return;
+    if (!isLocked()) return;
+    refreshTarget();
 
     if (e.button === 0) {
+      onSwing?.();
+      // 1) criatura na mira (e mais perto que o bloco mirado)?
+      if (onAttack) {
+        rayOrigin.copy(raycaster.ray.origin);
+        rayDir.copy(raycaster.ray.direction);
+        const blockDistance = current ? current.distance : Infinity;
+        if (onAttack({ origin: rayOrigin, dir: rayDir, blockDistance })) return;
+      }
+      // 2) senão, quebra o bloco. O fundo do mundo (y = 0) é indestrutível.
+      if (!current) return;
       const { x, y, z } = current.hit;
+      if (y <= 0) return;
+      const block = world.getBlock(x, y, z);
+      if (block === BLOCK.AIR) return;
       world.setBlock(x, y, z, BLOCK.AIR);
       rebuildAround(x, z);
+      onBreak?.(block, { x, y, z });
       onEdit?.();
     } else if (e.button === 2) {
-      const p = current.place;
-      const occupied = isSolid(world.getBlock(p.x, p.y, p.z));
-      if (!occupied && !sameCell(p, playerCell())) {
-        world.setBlock(p.x, p.y, p.z, HOTBAR[selectedIndex]);
-        rebuildAround(p.x, p.z);
-        onEdit?.();
+      const held = getHeldBlock?.() ?? null;
+      if (held == null) {
+        onUse?.();
+        return;
       }
+      if (!current) return;
+      const p = current.place;
+      if (p.y < 0 || p.y >= WORLD_HEIGHT) return; // teto do mundo: nada a colocar (e nada a gastar)
+      if (isSolid(world.getBlock(p.x, p.y, p.z))) return;
+      if (isCellBlocked?.(p)) return;
+      onSwing?.();
+      world.setBlock(p.x, p.y, p.z, held);
+      rebuildAround(p.x, p.z);
+      onPlace?.(held, p);
+      onEdit?.();
     }
-  }
-
-  function onKeyDown(e) {
-    const n = Number(e.key);
-    if (n >= 1 && n <= HOTBAR.length) {
-      selectedIndex = n - 1;
-      onSelect?.(HOTBAR[selectedIndex]);
-    }
-  }
-
-  function onWheel(e) {
-    if (!isLocked()) return;
-    const dir = e.deltaY > 0 ? 1 : -1;
-    selectedIndex = (selectedIndex + dir + HOTBAR.length) % HOTBAR.length;
-    onSelect?.(HOTBAR[selectedIndex]);
-    e.preventDefault();
   }
 
   function onContextMenu(e) {
@@ -145,16 +164,10 @@ export function createEditing(opts) {
   }
 
   document.addEventListener('mousedown', onMouseDown);
-  document.addEventListener('keydown', onKeyDown);
-  document.addEventListener('wheel', onWheel, { passive: false });
   document.addEventListener('contextmenu', onContextMenu);
-
-  onSelect?.(HOTBAR[selectedIndex]);
 
   function dispose() {
     document.removeEventListener('mousedown', onMouseDown);
-    document.removeEventListener('keydown', onKeyDown);
-    document.removeEventListener('wheel', onWheel);
     document.removeEventListener('contextmenu', onContextMenu);
     scene.remove(highlight);
     highlight.geometry.dispose();

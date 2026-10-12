@@ -6,7 +6,8 @@
 
 **Um Minecraft jogável no navegador**: explorar, **construir e destruir** um
 mundo de blocos, com física básica, persistência e visual reconhecível —
-publicável como página estática.
+publicável como página estática. **(Parte 2)** E agora com **criaturas e um loop de
+sobrevivência**: dia e noite, vida, combate, comida, morte e renascimento.
 
 Cada volta do loop dá **um passo pequeno e jogável** rumo a esse goal.
 
@@ -43,5 +44,33 @@ Quanto o agente corre sozinho entre pausas humanas. Definido por você:
 | 005 | Salvar / carregar mundo (localStorage)    | ✅ Feito (validação manual pendente) |
 | 006 | Streaming de chunks (mundo "infinito")    | ✅ Feito (validação manual pendente) |
 | 007 | Hotbar / inventário                       | ✅ Feito (validação manual pendente) |
+| 008 | Árvores (terreno determinístico)          | ✅ Feito |
+| 009 | Dia e noite (céu, sol, lua, estrelas)     | ✅ Feito |
+| 010 | Física de entidades (jogador = mobs)      | ✅ Feito |
+| 011 | Personagens: porco, ovelha, zumbi, creeper, avatar | ✅ Feito |
+| 012 | Vida, inventário e modos (Sobrevivência/Criativo)  | ✅ Feito |
+| 013 | Criaturas vivas: IA, spawn, explosão      | ✅ Feito |
+| 014 | Combate, drops e comida                   | ✅ Feito |
+| 015 | HUD, menu, tela de morte e sons           | ✅ Feito |
+| 016 | Terceira pessoa e mão                     | ✅ Feito |
 
 Legenda: ✅ feito · 🔨 em progresso · ⏳ planejado
+
+### Pendente de validação humana
+
+- **Sons** (feature 015): sintetizados e medidos offline, mas ninguém os ouviu ainda.
+- **Sensação de jogo**: balanceamento (dano do zumbi/creeper, cooldown do golpe, cura da carne)
+  foi ajustado por playtest automatizado; vale uma partida de verdade.
+- **Pointer lock** real: o navegador de ferramentas não o suporta; o fluxo foi exercitado com
+  `window.__vc.fakeLock()`.
+
+### Como a Parte 2 foi feita
+
+O prompt está em [`docs/prompts/parte-2-criaturas.md`](./docs/prompts/parte-2-criaturas.md).
+Cada feature teve spec → plan → tasks antes do código, testes headless (`npm test`) e
+playtest no navegador (o navegador de ferramentas não faz pointer lock; use
+`window.__vc.fakeLock()` em `npm run dev`).
+
+### Próximo (Parte 3, ideias)
+
+Crafting e ferramentas, água e cavernas, pathfinding, cama/baú, mais espécies.

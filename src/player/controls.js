@@ -1,16 +1,14 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
-import { collidesAABB } from './collision.js';
+import { PLAYER } from './collision.js';
+import {
+  createBody, createPlayerState, stepPlayer, toggleFly, allowFly,
+  knockPlayer, teleportPlayer, resetPlayerFall,
+} from '../entities/physics.js';
 // `world` expõe getBlock(bx,by,bz) em coordenadas globais.
-
-// Constantes de movimento (fonte única).
-const WALK_SPEED = 6; // andar (blocos/s)
-const RUN_MULT = 1.8; // Ctrl
-const FLY_SPEED = 14; // horizontal em modo voo
-const FLY_VERTICAL = 12; // subir/descer em modo voo
-const GRAVITY = 28; // blocos/s²
-const JUMP_SPEED = 9; // impulso do pulo
-const MAX_STEP = 0.2; // subdivisão do movimento (anti-tunneling)
+// Toda a física (gravidade, colisão, andar/correr/pular/voar, knock, queda) mora
+// em src/entities/physics.js — o MESMO código dos mobs. Aqui ficam só os
+// eventos (teclado/mouse) e a ligação câmera ↔ corpo.
 
 /**
  * Câmera/jogador em 1ª pessoa: pointer lock para olhar; WASD para andar;
@@ -19,20 +17,34 @@ const MAX_STEP = 0.2; // subdivisão do movimento (anti-tunneling)
  * @param {THREE.Camera} camera
  * @param {HTMLElement} domElement
  * @param {import('../world/world.js').World} world
+ * @param {{ onLand?: (fallDistance: number) => void }} [opts]
+ *   onLand: dispara UMA vez a cada pouso, com a distância caída em blocos
+ *   (pico − pouso; nunca em voo). O dano de queda é de quem recebe.
  */
-export function createControls(camera, domElement, world) {
+export function createControls(camera, domElement, world, { onLand } = {}) {
   const controls = new PointerLockControls(camera, domElement);
+
+  // O corpo vive nos PÉS; a câmera (olho) fica `PLAYER.eye` acima.
+  const body = createBody({
+    x: camera.position.x,
+    y: camera.position.y - PLAYER.eye,
+    z: camera.position.z,
+    halfW: PLAYER.halfWidth,
+    height: PLAYER.height,
+  });
+  const state = createPlayerState(body);
 
   const keys = {
     forward: false, backward: false, left: false, right: false,
-    up: false, down: false, run: false,
+    up: false, down: false, run: false, jump: false,
   };
+  const input = { moveX: 0, moveZ: 0, run: false, up: false, down: false, jump: false };
+  const result = {};
 
-  let flyMode = false;
-  let velY = 0;
-  let onGround = false;
-
+  // Teclas só valem com o mouse capturado: no menu/pausa, F não liga o voo e a barra de
+  // espaço continua ativando o botão focado (Renascer, modos).
   function onKeyDown(e) {
+    if (!controls.isLocked) return;
     switch (e.code) {
       case 'KeyW': case 'ArrowUp': keys.forward = true; break;
       case 'KeyS': case 'ArrowDown': keys.backward = true; break;
@@ -40,10 +52,10 @@ export function createControls(camera, domElement, world) {
       case 'KeyD': case 'ArrowRight': keys.right = true; break;
       case 'ControlLeft': case 'ControlRight': keys.run = true; break;
       case 'ShiftLeft': case 'ShiftRight': keys.down = true; break;
-      case 'KeyF': flyMode = !flyMode; velY = 0; break;
+      case 'KeyF': toggleFly(state); break;
       case 'Space':
-        if (flyMode) keys.up = true;
-        else if (onGround) { velY = JUMP_SPEED; onGround = false; }
+        if (state.flying) keys.up = true;
+        else keys.jump = true; // pedido de 1 quadro, consumido em update()
         break;
       default: return;
     }
@@ -67,32 +79,48 @@ export function createControls(camera, domElement, world) {
   document.addEventListener('keydown', onKeyDown);
   document.addEventListener('keyup', onKeyUp);
 
+  // Solta tudo ao pausar ou perder o foco (Alt+Tab): senão o jogador sai andando sozinho.
+  function releaseAll() {
+    for (const k of Object.keys(keys)) keys[k] = false;
+  }
+  controls.addEventListener('unlock', releaseAll);
+  if (typeof window !== 'undefined') window.addEventListener('blur', releaseAll);
+
   const forwardDir = new THREE.Vector3();
   const rightDir = new THREE.Vector3();
   const move = new THREE.Vector3();
   const worldUp = new THREE.Vector3(0, 1, 0);
 
-  // Move a câmera em um eixo, subdividido, revertendo o passo que colidir.
-  // Retorna true se algum passo foi bloqueado.
-  function moveAxis(axis, amount) {
-    if (amount === 0) return false;
-    const steps = Math.max(1, Math.ceil(Math.abs(amount) / MAX_STEP));
-    const step = amount / steps;
-    let blocked = false;
-    for (let i = 0; i < steps; i++) {
-      const prev = camera.position[axis];
-      camera.position[axis] += step;
-      if (collidesAABB(world, camera.position.x, camera.position.y, camera.position.z)) {
-        camera.position[axis] = prev;
-        blocked = true;
-        break;
-      }
+  // Último valor que ESCREVEMOS na câmera. Se a câmera estiver diferente no
+  // próximo quadro, alguém a moveu por fora (ex.: o spawn do main.js): o corpo
+  // adota a posição como um teleporte (sem velocidade nem queda acumulada).
+  let syncX = camera.position.x;
+  let syncY = camera.position.y;
+  let syncZ = camera.position.z;
+
+  function writeCamera() {
+    camera.position.set(body.pos.x, body.pos.y + PLAYER.eye, body.pos.z);
+    syncX = camera.position.x;
+    syncY = camera.position.y;
+    syncZ = camera.position.z;
+  }
+
+  function adoptExternalMove() {
+    const c = camera.position;
+    if (c.x !== syncX || c.y !== syncY || c.z !== syncZ) {
+      teleportPlayer(state, c.x, c.y - PLAYER.eye, c.z);
+      syncX = c.x;
+      syncY = c.y;
+      syncZ = c.z;
     }
-    return blocked;
   }
 
   function update(dt) {
-    if (!controls.isLocked) return;
+    if (!controls.isLocked) {
+      keys.jump = false; // um pulo pedido em pausa não vale depois
+      return;
+    }
+    adoptExternalMove();
 
     // direção horizontal a partir do olhar
     camera.getWorldDirection(forwardDir);
@@ -107,28 +135,46 @@ export function createControls(camera, domElement, world) {
     if (keys.left) move.sub(rightDir);
     if (move.lengthSq() > 0) move.normalize();
 
-    const hSpeed = (flyMode ? FLY_SPEED : WALK_SPEED) * (keys.run ? RUN_MULT : 1);
-    moveAxis('x', move.x * hSpeed * dt);
-    moveAxis('z', move.z * hSpeed * dt);
+    input.moveX = move.x;
+    input.moveZ = move.z;
+    // Correr: Ctrl, ou Shift no chão (Ctrl+W fecha a aba do navegador; no voo Shift desce).
+    input.run = keys.run || (keys.down && !state.flying);
+    input.up = keys.up;
+    input.down = keys.down;
+    input.jump = keys.jump;
+    keys.jump = false;
 
-    if (flyMode) {
-      velY = 0;
-      onGround = false;
-      let dy = 0;
-      if (keys.up) dy += FLY_VERTICAL * dt;
-      if (keys.down) dy -= FLY_VERTICAL * dt;
-      moveAxis('y', dy);
-    } else {
-      velY -= GRAVITY * dt;
-      const blocked = moveAxis('y', velY * dt);
-      if (blocked) {
-        if (velY < 0) onGround = true;
-        velY = 0;
-      } else {
-        onGround = false;
-      }
-    }
+    stepPlayer(world, state, input, dt, result);
+    writeCamera();
+    if (result.fall > 0 && onLand) onLand(result.fall);
   }
 
-  return { controls, update };
+  return {
+    controls,
+    update,
+    /** Corpo do jogador: `body.pos` = centro dos PÉS (use em ctx.player.pos). */
+    body,
+    /**
+     * Empurra o jogador: impulso horizontal na direção de (dirX,dirZ)
+     * normalizada, que decai (~0,25 s), e vertical `up` (>0) opcional.
+     */
+    knock(dirX, dirZ, strength, up = 0) {
+      knockPlayer(state, dirX, dirZ, strength, up);
+    },
+    /** false em Sobrevivência: desliga o voo se ligado e `F` não faz nada. */
+    setFlyAllowed(allowed) {
+      allowFly(state, allowed);
+    },
+    isFlying: () => state.flying,
+    isOnGround: () => body.onGround,
+    /** Leva o OLHO para (x, y, z); zera velocidades e a referência de queda. */
+    teleport(x, y, z) {
+      teleportPlayer(state, x, y - PLAYER.eye, z);
+      writeCamera();
+    },
+    /** Zera a referência de queda (o próximo pouso mede a partir daqui). */
+    resetFall() {
+      resetPlayerFall(state);
+    },
+  };
 }

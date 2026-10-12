@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BLOCK } from '../blocks.js';
+import { mulberry32 } from '../rng.js';
 
 // --- Layout do atlas (PURO, sem DOM) ---
 export const TILE_PX = 16; // resolução de cada tile
@@ -65,17 +66,6 @@ export function uvForTile(tileIndex) {
 }
 
 // --- Geração da imagem (browser) ---
-
-// PRNG determinístico (mulberry32) p/ ruído estável dos tiles.
-function mulberry32(seed) {
-  return function () {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function hexToRgb(hex) {
   return { r: (hex >> 16) & 255, g: (hex >> 8) & 255, b: hex & 255 };
