@@ -905,7 +905,7 @@ test('extras: setMode (corações no Criativo) e setMenuState (pausa marca o mod
   const sub = $('menu-sub');
   hud.setMenuState({ paused: true, mode: 'creative' });
   assert.ok($('overlay').has('paused'));
-  assert.equal(sub.textContent, 'Pausado · Parte 2 · Criaturas');
+  assert.equal(sub.textContent, 'Pausado · Parte 3 · Refinamento');
   assert.ok($('btn-creative').has('current') && !$('btn-survival').has('current'));
   assert.equal($('btn-creative').getAttribute('aria-current'), 'true');
   assert.equal($('btn-survival').getAttribute('aria-current'), null);
@@ -915,7 +915,7 @@ test('extras: setMode (corações no Criativo) e setMenuState (pausa marca o mod
 
   hud.setMenuState({ paused: false, mode: 'survival' });
   assert.ok(!$('overlay').has('paused'));
-  assert.equal(sub.textContent, 'Parte 2 · Criaturas');
+  assert.equal(sub.textContent, 'Parte 3 · Refinamento');
   assert.ok(!$('btn-survival').has('current') && !$('btn-creative').has('current'));
   assert.equal($('btn-survival').getAttribute('aria-current'), null);
   assert.doesNotThrow(() => hud.setMenuState());
@@ -948,7 +948,7 @@ test('index.html: mantém os ids da Parte 1 e acrescenta os da Parte 2 (sem repe
 
 test('index.html: textos do menu, subtítulo, tela de morte e tabela de controles', () => {
   assert.match(html, /<h1[^>]*>VOXELCRAFT<\/h1>/);
-  assert.ok(html.includes('Parte 2 · Criaturas'));
+  assert.ok(html.includes('Parte 3 · Refinamento'));
   assert.match(html, /id="btn-survival"[\s\S]*?Sobrevivência/);
   assert.match(html, /id="btn-creative"[\s\S]*?Criativo/);
   assert.match(html, /id="btn-new-world"[^>]*>Novo mundo</);

@@ -182,6 +182,14 @@ export function createGame({ world, rng, scene = null, makeView, mode = MODE.SUR
         knock: COMBAT.KNOCK,
       });
       pushSound(out, 'hit', target.point.x, target.point.y, target.point.z);
+      // Ponto de impacto para o host (partículas de combate, spec 018).
+      out.push({
+        type: 'hit-mob',
+        kind: target.mob.kind,
+        x: target.point.x,
+        y: target.point.y,
+        z: target.point.z,
+      });
       if (res.killed) {
         stats.addKill();
         for (const d of res.drops) {

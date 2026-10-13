@@ -43,6 +43,7 @@ voxels). Construído com **Spec-Driven Development (SDD)**: nada de código sem 
     │   ├── mobs.js      ← FONTE ÚNICA de hitbox, vida, velocidades e spawn das criaturas
     │   ├── physics.js   ← corpo AABB genérico (jogador e mobs usam o mesmo código)
     │   ├── ai.js        ← máquina de estados (passivo / zumbi / creeper)
+    │   ├── pathfinding.js ← caminho local em grade 2D: busca em largura pura (ADR 0016)
     │   ├── manager.js   ← spawn, update, raycast, dano, explosão (headless sem `scene`)
     │   ├── model.js     ← modelos de caixas + animações (Three.js sem DOM)
     │   └── skins.js     ← skins procedurais em pixels RGBA
@@ -51,6 +52,8 @@ voxels). Construído com **Spec-Driven Development (SDD)**: nada de código sem 
     │   ├── collision.js ← dimensões do jogador; delega a physics.collidesBox
     │   ├── editing.js   ← raycast, realce, quebrar/colocar (geometria; regras vão ao host)
     │   └── hand.js      ← item na mão (1ª pessoa)
+    ├── fx/particles.js  ← partículas de quebra e golpe em pool fixo de 96 (ADR 0017)
+    ├── balance/         ← faixas-alvo e cenários da simulação de balanceamento (ADR 0018)
     ├── ui/hud.js        ← corações, hotbar, relógio, toasts, menu, tela de morte
     └── world/
         ├── noise.js · terrain.js · world.js · streamer.js · atlas.js · persistence.js
@@ -63,6 +66,7 @@ voxels). Construído com **Spec-Driven Development (SDD)**: nada de código sem 
 | Instalar deps   | `npm install`      |
 | Rodar (dev)     | `npm run dev`      |
 | Testes headless | `npm test`         |
+| Balanceamento   | `npm run balance`  |
 | Build produção  | `npm run build`    |
 | Preview do build| `npm run preview`  |
 

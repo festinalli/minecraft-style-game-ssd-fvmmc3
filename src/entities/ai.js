@@ -79,6 +79,11 @@ export function initMob(mob, def, rng) {
   mob.lateralT = 0;
   mob.lateralDir = 1;
   mob.hurtBy = null;
+  // Caminho local (feature 017): o gerenciador planeja e guarda aqui; a IA só lê o próximo waypoint.
+  mob.path = null; // waypoints {x,y,z} ainda não alcançados, ou null
+  mob.pathT = 0; // s até o próximo replanejamento (≤ 0 ⇒ replaneja quando puder)
+  mob.pathGX = NaN; // coluna do alvo do último plano
+  mob.pathGZ = NaN;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,15 +170,36 @@ function faceTarget(mob) {
   }
 }
 
+/** Vetor (dx, dz) da perseguição, a partir do mob, até o ponto de mira. */
+const AIM = { dx: 0, dz: 0 };
+
 /**
- * Perseguição em linha reta rumo ao alvo; se ficou preso por mais de
- * `AI.unstickAfter` s anda de lado (sinal sorteado) por `AI.lateralTime`.
- * Escreve `wish`/`speed`/`wantJump`.
+ * Ponto de mira da perseguição: o próximo waypoint do caminho local (`ctx.nextStep`,
+ * feature 017), centro da célula; sem caminho (null, ou `nextStep` ausente), o próprio
+ * alvo — ou seja, a linha reta de sempre.
  */
-function chaseTarget(mob, rng, dt, speed) {
-  if (D.horiz <= EPS) return;
-  const ux = D.dx / D.horiz;
-  const uz = D.dz / D.horiz;
+function aimAt(mob, ctx, target) {
+  const wp = ctx.nextStep ? ctx.nextStep(mob, target) : null;
+  if (wp) {
+    AIM.dx = wp.x + 0.5 - mob.body.pos.x;
+    AIM.dz = wp.z + 0.5 - mob.body.pos.z;
+  } else {
+    AIM.dx = D.dx;
+    AIM.dz = D.dz;
+  }
+  return AIM;
+}
+
+/**
+ * Perseguição rumo à direção (dx, dz) (o ponto de mira menos a posição do mob); se
+ * ficou preso por mais de `AI.unstickAfter` s anda de lado (sinal sorteado) por
+ * `AI.lateralTime`. Escreve `wish`/`speed`/`wantJump`.
+ */
+function chaseTarget(mob, rng, dt, speed, dx, dz) {
+  const horiz = Math.sqrt(dx * dx + dz * dz);
+  if (horiz <= EPS) return;
+  const ux = dx / horiz;
+  const uz = dz / horiz;
   if (mob.lateralT <= 0 && mob.blockedT > AI.unstickAfter) {
     mob.lateralT = AI.lateralTime;
     mob.lateralDir = rng.chance(0.5) ? 1 : -1;
@@ -270,7 +296,10 @@ function thinkMelee(mob, def, ctx, rng, dt) {
         (!ctx.los || ctx.los(mp.x, mp.y + def.height * CHEST, mp.z, target.x, target.y + PLAYER.height * CHEST, target.z));
       mob.state = inReach ? STATE.ATTACK : STATE.CHASE;
       faceTarget(mob);
-      if (edge > def.attackReach * AI.stopFraction) chaseTarget(mob, rng, dt, def.chaseSpeed);
+      if (edge > def.attackReach * AI.stopFraction) {
+        const a = aimAt(mob, ctx, target);
+        chaseTarget(mob, rng, dt, def.chaseSpeed, a.dx, a.dz);
+      }
       if (inReach && mob.attackCd <= 0) strike(mob, def, ctx);
       talk(mob, def, ctx, rng, dt, VOICE[def.kind], AI.chaseVoiceGap);
       return;
@@ -310,7 +339,8 @@ function thinkCreeper(mob, def, ctx, rng, dt) {
       }
       mob.state = STATE.CHASE;
       decayFuse(mob, def, dt);
-      chaseTarget(mob, rng, dt, def.chaseSpeed);
+      const a = aimAt(mob, ctx, target);
+      chaseTarget(mob, rng, dt, def.chaseSpeed, a.dx, a.dz);
       return;
     }
   }
@@ -331,10 +361,12 @@ function thinkCreeper(mob, def, ctx, rng, dt) {
  * `think` empurra nele `hurt-player` (golpe do zumbi) e `sound` (voz, hiss). Se `los`
  * existir — `los(ax, ay, az, bx, by, bz) => boolean`, "o segmento a→b está livre de
  * blocos?" — o zumbi só bate com linha de visão (o gerenciador a fornece; sem ela,
- * vale só a geometria).
+ * vale só a geometria). Se `nextStep` existir — `nextStep(mob, alvo) => {x,y,z}|null`,
+ * o próximo waypoint do caminho local (feature 017) — quem persegue mira nele; `null`
+ * (ou ausente) é a linha reta de sempre.
  *
  * @param {object} mob @param {object} def
- * @param {{player:object, seconds?:number, events?:Array, los?:Function}} ctx
+ * @param {{player:object, seconds?:number, events?:Array, los?:Function, nextStep?:Function}} ctx
  * @param {ReturnType<import('../rng.js').makeRng>} rng
  * @param {number} dt segundos
  */

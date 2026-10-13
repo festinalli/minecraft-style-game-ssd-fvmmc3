@@ -1,6 +1,7 @@
 // Gerenciador de mobs (feature 013): dono das criaturas vivas. Junta a IA
 // (`ai.js`, que só decide) com a física genérica (`physics.js`) e o mundo, e
-// cuida de spawn/despawn, dano, morte, queima ao sol e explosão de creeper.
+// cuida de spawn/despawn, dano, morte, queima ao sol e explosão de creeper. Também
+// fornece `ctx.nextStep` (feature 017): o próximo waypoint do caminho local de quem persegue.
 //
 // HEADLESS quando `scene === null` (é assim que os testes e o `game.js`
 // rodam); com `scene`, cada mob ganha uma View (`makeView(kind, {variant})`)
@@ -17,6 +18,7 @@ import { PLAYER } from '../player/collision.js';
 import { MOB_DEFS, MOB_KINDS, SPAWN } from './mobs.js';
 import { KNOCK_CUTOFF, KNOCK_TAU, canStepUp, collidesBox, createBody, stepBody } from './physics.js';
 import { STATE, VOICE, initMob, isTargetable, think } from './ai.js';
+import { PATH, searchPath } from './pathfinding.js';
 import { createMobView } from './model.js';
 
 // --- Constantes de feitio (não são balanceamento de combate; esse é de mobs.js) ---
@@ -28,6 +30,7 @@ const POPULATE_ATTEMPTS = 60; // tentativas de `populate` antes de desistir
 const STUCK_FRACTION = 0.25; // andou menos que isso do pretendido ⇒ "bloqueado"
 const SEP_SPEED = 2; // b/s de afastamento entre dois corpos totalmente sobrepostos (cai a 0 ao se tocarem)
 const LOS_STEP = 0.2; // blocos entre amostras da linha de visão
+const REPLAN_BUDGET = 2; // replanejamentos de caminho por quadro: escalona os mobs que perseguem
 const TAU = Math.PI * 2;
 
 const NO_EVENTS = Object.freeze([]);
@@ -50,11 +53,16 @@ export function createMobManager({ world, rng, scene = null, makeView = createMo
   let disposed = false;
 
   // Objetos reutilizados (zero alocação por quadro).
-  const thinkCtx = { player: null, seconds: 0, events: pending, los: lineClear };
+  const thinkCtx = { player: null, seconds: 0, events: pending, los: lineClear, nextStep };
   const active = []; // mobs simulados neste quadro (reutilizada)
   const viewState = { speed: 0, hurt: 0, fuse: 0, burning: false, attack: 0, dying: 0 };
   const stepOut = { hitX: false, hitZ: false, hitCeiling: false, landed: false, impactVy: 0 };
   const stepOpts = { out: stepOut };
+  // Caminho local (feature 017): estado do planejamento. `frameDt` e `budget` são zerados a cada `update`.
+  let frameDt = 0; // s do quadro atual (já limitado por MAX_DT)
+  let budget = 0; // replanejamentos ainda permitidos neste quadro
+  let planDef = null; // def do corpo planejado (meia-largura e altura)
+  const others = []; // pés dos outros mobs perto do plano, em trios x, y, z (reutilizada)
 
   /** O segmento a→b não atravessa nenhum bloco sólido? (amostras a cada `LOS_STEP`; extremos de fora) */
   function lineClear(ax, ay, az, bx, by, bz) {
@@ -505,6 +513,92 @@ export function createMobManager({ world, rng, scene = null, makeView = createMo
   }
 
   // -------------------------------------------------------------------------
+  // Caminho local (feature 017): `ctx.nextStep`, o próximo waypoint de quem persegue
+  // -------------------------------------------------------------------------
+
+  /** O corpo de `planDef` cabe com os pés em (x, y, z)? Sem bloco sólido e sem pés de outro mob. */
+  function walkFree(x, y, z) {
+    if (collidesBox(world, x + 0.5, y, z + 0.5, planDef.halfW, planDef.height)) return false;
+    for (let i = 0; i < others.length; i += 3) {
+      if (others[i] === x && others[i + 1] === y && others[i + 2] === z) return false;
+    }
+    return true;
+  }
+
+  /** Há chão sólido sob os pés em (x, y, z)? */
+  function walkGround(x, y, z) {
+    return isSolid(world.getBlock(x, y - 1, z));
+  }
+
+  const walk = { free: walkFree, ground: walkGround };
+
+  /** Guarda os pés dos outros mobs vivos que podem cair na janela do plano de `mob`. */
+  function gatherOthers(mob) {
+    others.length = 0;
+    const p = mob.body.pos;
+    const reach = 2 * PATH.RADIUS + 1; // a janela cobre até 2·RADIUS a partir do mob
+    for (const m of mobs.values()) {
+      if (m === mob || m.dead) continue;
+      const q = m.body.pos;
+      if (Math.abs(q.x - p.x) > reach || Math.abs(q.z - p.z) > reach) continue;
+      others.push(Math.floor(q.x), Math.round(q.y), Math.floor(q.z));
+    }
+  }
+
+  /** O trecho que ainda falta de `path` continua válido no mundo de agora? (pode ter mudado desde o plano) */
+  function restoValido(path) {
+    for (const c of path) {
+      if (!walkFree(c.x, c.y, c.z) || !walkGround(c.x, c.y, c.z)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Planeja de novo o caminho de `mob` até a coluna (gx, gz). Sem caminho, `mob.path`
+   * fica null. Exceção: se o alvo saiu da janela só porque o mob andou, o plano não
+   * existe e o caminho anterior segue enquanto o trecho restante for válido. Sem isso,
+   * o mob oscilaria: planeja ao entrar na janela, sai dela ao contornar o muro e volta
+   * a andar em linha reta.
+   */
+  function plan(mob, gx, gz) {
+    const p = mob.body.pos;
+    const sx = Math.floor(p.x);
+    const sz = Math.floor(p.z);
+    planDef = mob.def;
+    gatherOthers(mob);
+    const r = searchPath(walk, { x: sx, y: Math.round(p.y), z: sz }, { x: gx, z: gz });
+    const fora = Math.abs(gx - sx) > 2 * PATH.RADIUS || Math.abs(gz - sz) > 2 * PATH.RADIUS;
+    const manter = r.path === null && fora && mob.path !== null && restoValido(mob.path);
+    if (!manter) mob.path = r.path;
+    mob.pathGX = gx;
+    mob.pathGZ = gz;
+    mob.pathT = PATH.REPLAN_EVERY;
+  }
+
+  /**
+   * Próximo waypoint do caminho de `mob` rumo a `target` (é o `ctx.nextStep` que a IA
+   * chama ao perseguir). Replaneja quando o prazo acabou ou o alvo mudou de coluna,
+   * desde que ainda haja orçamento no quadro: assim os mobs não replanejam todos no
+   * mesmo quadro. Descarta os waypoints já alcançados. `null` = siga em linha reta.
+   */
+  function nextStep(mob, target) {
+    const gx = Math.floor(target.x);
+    const gz = Math.floor(target.z);
+    mob.pathT -= frameDt;
+    if ((mob.pathT <= 0 || mob.pathGX !== gx || mob.pathGZ !== gz) && budget > 0) {
+      budget--;
+      plan(mob, gx, gz);
+    }
+    const path = mob.path;
+    if (!path) return null;
+    const p = mob.body.pos;
+    const cx = Math.floor(p.x);
+    const cz = Math.floor(p.z);
+    while (path.length > 0 && path[0].x === cx && path[0].z === cz) path.shift();
+    return path.length > 0 ? path[0] : null;
+  }
+
+  // -------------------------------------------------------------------------
   // Spawn / população
   // -------------------------------------------------------------------------
 
@@ -626,6 +720,8 @@ export function createMobManager({ world, rng, scene = null, makeView = createMo
     thinkCtx.events = pending;
     if (disposed || !(dt > 0) || !ctx) return flush();
     if (dt > MAX_DT) dt = MAX_DT;
+    frameDt = dt;
+    budget = REPLAN_BUDGET;
     thinkCtx.seconds = ctx.seconds;
     const pp = ctx.player && ctx.player.pos ? ctx.player.pos : null;
 

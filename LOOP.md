@@ -53,6 +53,9 @@ Quanto o agente corre sozinho entre pausas humanas. Definido por você:
 | 014 | Combate, drops e comida                   | ✅ Feito |
 | 015 | HUD, menu, tela de morte e sons           | ✅ Feito |
 | 016 | Terceira pessoa e mão                     | ✅ Feito |
+| 017 | Pathfinding local (zumbi contorna muros)  | ✅ Feito |
+| 018 | Feedback visual de quebra e combate       | ✅ Feito (validação no navegador pendente) |
+| 019 | Balanceamento por simulação               | ✅ Feito |
 
 Legenda: ✅ feito · 🔨 em progresso · ⏳ planejado
 
@@ -71,6 +74,6 @@ Cada feature teve spec → plan → tasks antes do código, testes headless (`np
 playtest no navegador (o navegador de ferramentas não faz pointer lock; use
 `window.__vc.fakeLock()` em `npm run dev`).
 
-### Próximo (Parte 3, ideias)
+### Próximo (Parte 4, ideias)
 
-Crafting e ferramentas, água e cavernas, pathfinding, cama/baú, mais espécies.
+Crafting e ferramentas, água e cavernas, mais espécies, pathfinding 3D, cama/baú.

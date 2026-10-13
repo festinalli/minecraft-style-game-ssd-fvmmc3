@@ -72,7 +72,7 @@ ser determinístico (constitution: mesma seed ⇒ mesmo comportamento).
   O integrador rebalanceou em `mobs.js` para `fuseStartDist` 2,5, `blastRadius` 4,0 e
   `blastDamage` 16: parado a 2,5 blocos o jogador leva 6 HP (3 corações); no playtest
   a ~2 blocos levou 8 HP, além da cratera e do empurrão.
-- **Limites conhecidos:** sem pathfinding (obstáculos grandes viram um passeio
+- **Limites conhecidos:** caminho local (ADR 0016) contorna paredes na janela; sem caminho, o mob vira um passeio
   lateral aleatório); o dano de mob não tem janela de imunidade (só o knockback e
   o flash têm) — a cadência de golpes do jogador é do host; sem colisão
   jogador × mob (só separação entre mobs); a separação é O(n²) (com ≤ ~20 mobs

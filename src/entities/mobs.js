@@ -26,6 +26,7 @@ export const MOB_DEFS = {
   pig: {
     ...COMMON,
     kind: 'pig',
+    color: 0xf0a8b0, // cor base: as partículas do golpe saem nesta cor (spec 018)
     behavior: BEHAVIOR.PASSIVE,
     hostile: false,
     maxHp: 10,
@@ -42,6 +43,7 @@ export const MOB_DEFS = {
   sheep: {
     ...COMMON,
     kind: 'sheep',
+    color: 0xf2f2f2,
     behavior: BEHAVIOR.PASSIVE,
     hostile: false,
     maxHp: 8,
@@ -59,6 +61,7 @@ export const MOB_DEFS = {
   zombie: {
     ...COMMON,
     kind: 'zombie',
+    color: 0x4f9a5a,
     behavior: BEHAVIOR.MELEE,
     hostile: true,
     maxHp: 20,
@@ -68,7 +71,7 @@ export const MOB_DEFS = {
     chaseSpeed: 3.6, // jogador anda 6 e corre ~10.8: dá pra fugir
     idleTime: [1, 3],
     wanderTime: [1, 3],
-    aggroRange: 20,
+    aggroRange: 21,
     attackReach: 1.2, // distância horizontal entre os corpos (borda a borda)
     attackDamage: 4, // HP (2 corações)
     attackCooldown: 1.0,
@@ -82,6 +85,7 @@ export const MOB_DEFS = {
   creeper: {
     ...COMMON,
     kind: 'creeper',
+    color: 0x5fb35f,
     behavior: BEHAVIOR.CREEPER,
     hostile: true,
     maxHp: 16,
@@ -96,7 +100,7 @@ export const MOB_DEFS = {
     fuseAbortDist: 5.5, // se o jogador se afastar além disso, desarma
     fuseTime: 1.5, // s até explodir
     blastRadius: 4.0, // alcance do dano ao jogador/mobs
-    blastDamage: 16, // HP no centro; cai linearmente até 0 na borda (parado a 2,5: 6 HP)
+    blastDamage: 16, // HP no centro; cai linearmente até 0 na borda (parado a 2,5: 7 HP, medido na spec 019)
     carveRadius: 2.5, // esfera de blocos destruídos (nunca y < 1)
     knockback: 9,
     knockbackUp: 6,
