@@ -464,3 +464,42 @@ test('save: round-trip pelo formato REAL (serializeChunks → deserializeChunks 
   assert.equal(h.stats.kills, 1);
   assert.equal(h.inventory.count(SLOT.COBBLE), 1);
 });
+
+test('golpe em criatura devolve hit-mob (tipo e ponto de impacto na hitbox); o golpe que mata também', () => {
+  const g = newGame();
+  g.inventory.select(SLOT.SWORD);
+  const pig = parkMob(g, 'pig');
+  const { halfW, height } = MOB_DEFS.pig;
+  const x0 = pig.body.pos.x;
+  const y0 = pig.body.pos.y;
+  const z0 = pig.body.pos.z;
+
+  const r1 = g.attack(rayAt(pig));
+  const hits = ofType(r1.events, 'hit-mob');
+  assert.equal(hits.length, 1, 'um golpe, um evento hit-mob');
+  assert.equal(hits[0].kind, 'pig');
+  // o raio entra pela face da hitbox voltada para o jogador (x0 - halfW)
+  assert.ok(Math.abs(hits[0].x - (x0 - halfW)) < 1e-6, 'x na face da hitbox');
+  assert.ok(hits[0].y >= y0 && hits[0].y <= y0 + height, 'y dentro da altura do porco');
+  assert.ok(Math.abs(hits[0].z - z0) <= halfW + 1e-6, 'z dentro da largura do porco');
+
+  // golpe ainda recarregando: o clique é consumido, sem dano e sem hit-mob
+  const again = g.attack(rayAt(pig));
+  assert.equal(again.hit, true);
+  assert.equal(ofType(again.events, 'hit-mob').length, 0);
+
+  // o golpe que mata também emite o evento (o impacto aconteceu)
+  cool(g);
+  pig.body.pos.x = PLAYER_POS.x + 1.5; // o knockback o empurrou: traz de volta
+  pig.body.pos.z = PLAYER_POS.z;
+  const r2 = g.attack(rayAt(pig));
+  assert.equal(g.stats.kills, 1);
+  assert.equal(ofType(r2.events, 'hit-mob').length, 1);
+});
+
+test('sem criatura na mira não há hit-mob (o clique vai para o bloco)', () => {
+  const g = newGame();
+  const miss = g.attack({ origin: eye(), dir: { x: 0, y: 1, z: 0 }, blockDistance: Infinity });
+  assert.equal(miss.hit, false);
+  assert.equal(ofType(miss.events, 'hit-mob').length, 0);
+});

@@ -1728,3 +1728,158 @@ test('vazio: mob que cai abaixo de SPAWN.voidY é removido (saves antigos com bu
   assert.equal(mgr.mobs.has(pig.id), false, 'o que caiu no vazio sumiu');
   assert.equal(mgr.mobs.has(keep.id), true, 'os demais ficam');
 });
+
+// ---------------------------------------------------------------------------
+// Caminho local (feature 017): quem persegue contorna obstáculos pela grade
+// ---------------------------------------------------------------------------
+
+/** Muro em U de 3 blocos: base em x=3 (z −3..3) e braços em z=±3 (x 0..2); abertura a oeste. */
+function uWall(w) {
+  fill(w, 3, S, -3, 3, S + 2, 3, BLOCK.COBBLE);
+  fill(w, 0, S, -3, 2, S + 2, -3, BLOCK.COBBLE);
+  fill(w, 0, S, 3, 2, S + 2, 3, BLOCK.COBBLE);
+}
+
+test('caminho local: zumbi contorna um muro em U de 3 blocos e chega ao jogador em até 8 s, sem entrar em bloco', () => {
+  for (const seed of [1, 2, 3]) {
+    const w = flatWorld();
+    uWall(w);
+    const { mgr } = newManager(w, seed);
+    const z = mgr.spawn('zombie', 0.5, S, 0.5); // dentro do U
+    const player = P(6.5, S, 0.5); // do lado de fora, a leste
+    let arrivedAt = null;
+    let inside = false;
+    let waypointInSolid = false;
+    run(mgr, 8, { player, seconds: NIGHT }, (i) => {
+      const p = z.body.pos;
+      if (collidesBox(w, p.x, p.y, p.z, z.def.halfW, z.def.height)) inside = true;
+      for (const c of z.path ?? []) {
+        if (isSolid(w.getBlock(c.x, c.y, c.z)) || isSolid(w.getBlock(c.x, c.y + 1, c.z))) waypointInSolid = true;
+      }
+      if (arrivedAt === null && z.state === STATE.ATTACK) arrivedAt = (i + 1) * DT;
+    });
+    assert.ok(arrivedAt !== null, `seed ${seed}: chegou ao jogador em 8 s`);
+    assert.equal(inside, false, 'o corpo nunca ficou dentro de um bloco');
+    assert.equal(waypointInSolid, false, 'nenhum waypoint do caminho é sólido');
+  }
+});
+
+test('caminho local: zumbi fora de uma ilha cercada nunca entra no bloco nem na ilha, e não bate através da cerca', () => {
+  const w = flatWorld();
+  // cerca de 3 blocos de altura em volta de (6,0): o jogador fica numa "ilha" sem acesso
+  fill(w, 5, S, -1, 7, S + 2, -1, BLOCK.COBBLE);
+  fill(w, 5, S, 1, 7, S + 2, 1, BLOCK.COBBLE);
+  fill(w, 5, S, 0, 5, S + 2, 0, BLOCK.COBBLE);
+  fill(w, 7, S, 0, 7, S + 2, 0, BLOCK.COBBLE);
+  const { mgr } = newManager(w, 21);
+  const z = mgr.spawn('zombie', 0.5, S, 0.5);
+  const player = P(6.5, S, 0.5);
+  let inside = false;
+  let intoIsland = false;
+  const ev = run(mgr, 10, { player, seconds: NIGHT }, () => {
+    const p = z.body.pos;
+    if (collidesBox(w, p.x, p.y, p.z, z.def.halfW, z.def.height)) inside = true;
+    if (Math.floor(p.x) === 6 && Math.floor(p.z) === 0) intoIsland = true;
+  });
+  assert.equal(inside, false, 'nunca ficou dentro de bloco');
+  assert.equal(intoIsland, false, 'nunca entrou na célula do jogador, dentro da cerca');
+  assert.equal(ofType(ev, 'hurt-player').length, 0, 'a cerca bloqueia a linha de visão: ninguém apanha');
+});
+
+test('caminho local: mesma seed e mesma sequência de ctx ⇒ mesmos caminhos a cada quadro', () => {
+  const runOnce = () => {
+    const w = flatWorld();
+    uWall(w);
+    const { mgr } = newManager(w, 33);
+    const z = mgr.spawn('zombie', 0.5, S, 0.5);
+    const snaps = [];
+    const ctxOf = (i) => ({ player: P(i > 300 ? 4.5 : 6.5, S, i > 120 ? 2.5 : 0.5), seconds: NIGHT });
+    run(mgr, 8, ctxOf, () => snaps.push(JSON.stringify([z.path, z.body.pos])));
+    return snaps;
+  };
+  const a = runOnce();
+  const b = runOnce();
+  assert.ok(a.some((s) => s.includes('"x":')), 'houve caminho');
+  assert.deepEqual(a, b);
+});
+
+test('caminho local: o caminho nunca passa pela célula dos pés de outro mob (porco parado no meio)', () => {
+  const w = flatWorld();
+  const { mgr } = newManager(w, 44);
+  const z = mgr.spawn('zombie', 0.5, S, 0.5);
+  const pig = mgr.spawn('pig', 2.5, S, 0.5); // no meio do caminho, em (2, S, 0)
+  const player = P(4.5, S, 0.5);
+  let violou = false;
+  let attackedAt = null;
+  run(mgr, 8, { player, seconds: NIGHT }, (i) => {
+    pig.state = STATE.IDLE; // o porco fica parado: a célula dele é fixa
+    pig.stateT = 1e9;
+    if (z.path && z.path.some((c) => c.x === 2 && c.z === 0)) violou = true;
+    if (attackedAt === null && z.state === STATE.ATTACK) attackedAt = (i + 1) * DT;
+  });
+  assert.equal(violou, false, 'nenhum caminho passou pelos pés do porco');
+  assert.ok(attackedAt !== null, 'e o zumbi contorna o porco e alcança o jogador');
+});
+
+test('caminho local: replanejamento escalonado — no máximo 2 mobs planejam por quadro, e todos têm caminho em 3 quadros', () => {
+  const w = flatWorld();
+  const { mgr } = newManager(w, 55);
+  const zs = [];
+  for (let i = 0; i < 6; i++) zs.push(mgr.spawn('zombie', 5.5, S, -2.5 + i)); // seis zumbis que chegam juntos
+  const player = P(0.5, S, 0.5);
+  mgr.update(DT, { player, seconds: NIGHT });
+  const primeiro = zs.filter((z) => z.path !== null).length;
+  assert.ok(primeiro >= 1 && primeiro <= 2, `após 1 quadro, ${primeiro} planejaram (orçamento de 2 por quadro)`);
+  mgr.update(DT, { player, seconds: NIGHT });
+  mgr.update(DT, { player, seconds: NIGHT });
+  assert.equal(zs.filter((z) => z.path !== null).length, 6, 'em 3 quadros, os seis têm caminho');
+});
+
+test('caminho local: o creeper também contorna o muro em U e passa para o outro lado (persegue pela abertura)', () => {
+  const w = flatWorld();
+  uWall(w);
+  const { mgr } = newManager(w, 66);
+  const c = mgr.spawn('creeper', 0.5, S, 0.5);
+  const player = P(6.5, S, 0.5);
+  let passou = false;
+  run(mgr, 8, { player, seconds: NIGHT }, () => {
+    if (c.body.pos.x > 3.5) passou = true; // além da base do U (x=3): só andando por fora dos braços
+  });
+  assert.ok(passou, 'o creeper saiu do U e passou da base');
+});
+
+test('caminho local: passivos não planejam caminho (porco e ovelha não perseguem)', () => {
+  const w = flatWorld();
+  const { mgr } = newManager(w, 77);
+  const pig = mgr.spawn('pig', 0.5, S, 0.5);
+  const sheep = mgr.spawn('sheep', 3.5, S, 0.5);
+  run(mgr, 5, { player: P(4.5, S, 0.5), seconds: NOON });
+  assert.equal(pig.path, null);
+  assert.equal(sheep.path, null);
+});
+
+test('caminho local: alvo a 9 blocos, atrás do U: o zumbi não oscila na borda da janela e contorna o muro', () => {
+  const w = flatWorld();
+  uWall(w);
+  const { mgr } = newManager(w, 67);
+  const z = mgr.spawn('zombie', 0.5, S, 0.5);
+  const player = P(9.5, S, 0.5); // fora da janela a partir do início; o caminho nasce quando o zumbi entra nela
+  let arrivedAt = null;
+  run(mgr, 12, { player, seconds: NIGHT }, (i) => {
+    if (arrivedAt === null && z.state === STATE.ATTACK) arrivedAt = (i + 1) * DT;
+  });
+  assert.ok(arrivedAt !== null && arrivedAt < 10, `chegou em ${arrivedAt === null ? 'nunca' : arrivedAt.toFixed(2) + ' s'}`);
+});
+
+test('perseguição a 18 blocos atrás do muro em U (percebido com aggroRange 21): a janela alcança e o zumbi chega', () => {
+  const w = flatWorld();
+  uWall(w);
+  const { mgr } = newManager(w, 71);
+  const z = mgr.spawn('zombie', 0.5, S, 0.5);
+  const player = P(18.5, S, 0.5);
+  let arrivedAt = null;
+  run(mgr, 25, { player, seconds: NIGHT }, (i) => {
+    if (arrivedAt === null && z.state === STATE.ATTACK) arrivedAt = (i + 1) * DT;
+  });
+  assert.ok(arrivedAt !== null && arrivedAt < 22, 'chegou em ' + (arrivedAt === null ? 'nunca' : arrivedAt.toFixed(2) + ' s'));
+});

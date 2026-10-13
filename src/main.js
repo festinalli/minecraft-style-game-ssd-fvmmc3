@@ -19,11 +19,16 @@ import { MAX_HP } from './game/stats.js';
 import { createAvatarView } from './entities/model.js';
 import { createHud, phaseLabel } from './ui/hud.js';
 import { createAudio } from './audio.js';
+import { createParticles } from './fx/particles.js';
 
 const WORLD_SEED = 1337; // seed fixa: mundo determinístico (constitution)
 const RENDER_RADIUS = 6; // chunks visíveis ao redor do jogador
 const EYE = PLAYER.eye;
 const THIRD_PERSON_DISTANCE = 3.6;
+const BREAK_PARTICLES = 8; // cubinhos ao quebrar um bloco (spec 018)
+const HIT_PARTICLES = 6; // cubinhos ao acertar uma criatura
+const HIT_PUSH = 3; // impulso horizontal dos cubinhos do golpe (b/s), no sentido do golpe
+const HIT_LIFT = 1.5; // impulso vertical dos cubinhos do golpe (b/s)
 
 // --- Renderer ---
 const app = document.getElementById('app');
@@ -94,6 +99,8 @@ const streamer = createStreamer({
 // A seed de runtime mistura a do mundo com o relógio só para variar as partidas.
 const rng = makeRng((WORLD_SEED ^ (Date.now() & 0x7fffffff)) >>> 0);
 const game = createGame({ world, rng, scene, saved: savedGame, mode: 'survival' });
+// Efeitos visuais (spec 018) têm rng próprio: não consomem o do jogo (IA e spawn).
+const particles = createParticles(scene, { rng: makeRng(WORLD_SEED + 1) });
 
 const hud = createHud();
 const audio = createAudio();
@@ -205,9 +212,10 @@ const editing = createEditing({
     dispatch(r.events);
     return r.hit;
   },
-  onBreak: (block) => {
+  onBreak: (block, cell) => {
     dispatch(game.onBlockBroken(block));
     audio.play('break');
+    particles.emit(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5, BLOCK_COLOR[block], BREAK_PARTICLES);
   },
   onPlace: () => {
     game.onBlockPlaced();
@@ -256,6 +264,7 @@ document.addEventListener(
 
 // --- Eventos do jogo -> mundo/HUD/som/jogador ---
 const dirVec = new THREE.Vector3();
+const hitImpulse = { x: 0, y: 0, z: 0 };
 function rebuildChunksOf(blocks) {
   // Cada chunk tocado, e o vizinho quando o bloco está na borda (face culling entre chunks).
   const keys = new Set();
@@ -312,6 +321,19 @@ function dispatch(events) {
       case 'sound':
         playSoundAt(e);
         break;
+      case 'hit-mob': {
+        const def = game.mobDef(e.kind);
+        if (!def) break;
+        // impulso no sentido do golpe: do jogador até o ponto de impacto (horizontal)
+        const hx = e.x - feet.x;
+        const hz = e.z - feet.z;
+        const len = Math.hypot(hx, hz) || 1;
+        hitImpulse.x = (hx / len) * HIT_PUSH;
+        hitImpulse.y = HIT_LIFT;
+        hitImpulse.z = (hz / len) * HIT_PUSH;
+        particles.emit(e.x, e.y, e.z, def.color, HIT_PARTICLES, hitImpulse);
+        break;
+      }
       case 'toast':
         hud.toast(e.text);
         scheduleSave();
@@ -499,6 +521,8 @@ function animate() {
       }
     }
   }
+
+  particles.update(dt);
 
   // velocidade horizontal (avatar, mão)
   const inst = dt > 0 ? Math.hypot(camera.position.x - lastX, camera.position.z - lastZ) / dt : 0;

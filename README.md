@@ -94,6 +94,7 @@ Hotbar: `1`–`8` blocos (grama, terra, pedra, areia, madeira, folhas, tábuas, 
 npm install
 npm run dev      # abre em http://localhost:5173
 npm test         # testes headless (lógica, IA, física, save, loop jogável)
+npm run balance  # tabela de balanceamento (criaturas e combate)
 ```
 
 Build estático (publicável no GitHub Pages):
@@ -132,10 +133,18 @@ Veja `.specs/constitution.md`.
 4. Implementa, marcando tasks no **mesmo commit**, com teste headless da lógica.
    Decisão relevante? Vira ADR.
 
-## 🛣️ Próximas features (Parte 3 — ideias)
+## ✨ Parte 3 — Refinamento
+
+- **Pathfinding local:** zumbis e creepers contornam muros dentro de uma janela de 25 × 25
+  blocos centrada entre eles e você (ADR 0016).
+- **Feedback visual:** quebrar bloco e acertar criatura soltam partículas na cor certa.
+- **Balanceamento medido:** os números de combate têm faixas-alvo testadas; `npm run balance`
+  mostra a tabela (ADR 0018).
+
+## 🛣️ Próximas features (Parte 4 — ideias)
 - Crafting e ferramentas com durabilidade.
 - Água, cavernas (ruído 3D) e minérios.
-- Pathfinding nas criaturas e mais espécies (esqueleto com arco).
+- Mais espécies (esqueleto com arco) e pathfinding 3D (escadas, pulo de vão).
 - Cama (definir ponto de renascimento) e baú.
 
 > Roadmap e status atual em [`LOOP.md`](./LOOP.md).

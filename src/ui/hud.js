@@ -32,8 +32,8 @@ export const MENU_MODE = Object.freeze({ SURVIVAL: 'survival', CREATIVE: 'creati
 /** "Dia 3 · Dia" lê mal; a fase "Dia" aparece como "Pleno dia" no relógio. */
 const PHASE_DISPLAY = Object.freeze({ Dia: 'Pleno dia' });
 
-const SUB_TEXT = 'Parte 2 · Criaturas';
-const SUB_TEXT_PAUSED = 'Pausado · Parte 2 · Criaturas';
+const SUB_TEXT = 'Parte 3 · Refinamento';
+const SUB_TEXT_PAUSED = 'Pausado · Parte 3 · Refinamento';
 
 // ---------------------------------------------------------------------------
 // Funções puras
